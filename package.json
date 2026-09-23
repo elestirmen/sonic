@@ -1,0 +1,15 @@
+{
+  "name": "sonik",
+  "version": "1.0.0",
+  "description": "Tarayıcıda çalışan akustik modem: metni sese çevirir, mikrofondan dinleyip çözer.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "bench": "node test/bench.js",
+    "serve": "python3 -m http.server 8000 --directory public"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

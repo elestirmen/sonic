@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sonik · sesle veri aktarımı</title>
+    <meta
+      name="description"
+      content="Tarayıcıda çalışan akustik modem: metni sese çevirir, başka bir cihaz mikrofonla dinleyip çözer. Sunucu yok; her şey tarayıcıda."
+    />
+    <meta name="theme-color" content="#0f766e" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="style.css" />
+    <script type="module" src="src/main.js"></script>
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">
+        <svg class="logo" viewBox="0 0 48 48" aria-hidden="true">
+          <rect width="48" height="48" rx="12" fill="currentColor" />
+          <path
+            d="M8 24h4l3-8 4 16 4-22 4 28 4-20 3 10 2-4h4"
+            fill="none"
+            stroke="#fff"
+            stroke-width="3"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+        <div>
+          <h1>Sonik</h1>
+          <p>Sesle veri aktarımı: metni sese çevir, başka bir cihaz dinleyip çözsün.</p>
+        </div>
+      </div>
+    </header>
+
+    <div id="warnings" class="warnings" hidden></div>
+
+    <main class="grid">
+      <section class="card" aria-labelledby="send-title">
+        <h2 id="send-title">Gönder</h2>
+
+        <label class="field">
+          <span class="label">Mesaj</span>
+          <textarea id="message" rows="4" placeholder="Gönderilecek mesajı yaz…">Merhaba! Bu mesaj sesle geldi 🙂</textarea>
+          <span class="hint"><span><span id="byte-count">0</span> / 255 bayt</span> <span id="duration-estimate"></span></span>
+        </label>
+
+        <div class="field">
+          <span class="label" id="profile-label">Profil</span>
+          <div class="segmented" id="profile-picker" role="radiogroup" aria-labelledby="profile-label"></div>
+          <span class="hint" id="profile-summary"></span>
+        </div>
+
+        <label class="field inline">
+          <span class="label">Ses</span>
+          <input id="volume" type="range" min="5" max="100" value="80" />
+          <output id="volume-out">%80</output>
+        </label>
+
+        <details class="lock">
+          <summary>Parolayla şifrele (isteğe bağlı)</summary>
+          <label class="field">
+            <input id="password" type="password" autocomplete="off" placeholder="Boş bırakırsan şifrelenmez" />
+            <span class="hint">Alan cihaza da aynı parolayı gir. Şifreleme mesaja 36 bayt ekler.</span>
+          </label>
+        </details>
+
+        <div class="actions">
+          <button id="send-btn" class="btn primary" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+            Sese çevir ve çal
+          </button>
+          <button id="wav-btn" class="btn" type="button">WAV indir</button>
+        </div>
+        <div class="playback" id="playback" hidden>
+          <div class="bar"><div id="play-progress"></div></div>
+          <button id="stop-btn" class="btn small" type="button">Durdur</button>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="listen-title">
+        <h2 id="listen-title">Dinle</h2>
+        <div class="listen-head">
+          <button id="listen-btn" class="btn primary" type="button">Dinlemeyi başlat</button>
+          <div class="status" id="status" data-kind="idle" role="status" aria-live="polite">
+            <span class="dot" aria-hidden="true"></span><span id="status-text">Hazır</span>
+          </div>
+        </div>
+
+        <div class="spectro">
+          <canvas id="spectrogram" aria-label="Canlı spektrogram"></canvas>
+          <div class="axis" id="spectro-axis" aria-hidden="true"></div>
+          <button id="range-btn" class="chip" type="button" title="Frekans aralığı">0–10 kHz</button>
+        </div>
+        <div class="meter" title="Giriş seviyesi"><div id="level"></div></div>
+        <div class="bar receive" id="rx-bar" hidden><div id="rx-progress"></div></div>
+
+        <div class="last" id="last-message" hidden>
+          <div class="last-text" id="last-text"></div>
+          <div class="last-foot">
+            <span class="last-meta" id="last-meta"></span>
+            <button id="copy-last" class="btn small ghost" type="button">Kopyala</button>
+          </div>
+        </div>
+
+        <div class="actions secondary">
+          <label class="btn small">
+            Dosyadan çöz
+            <input id="file-input" type="file" accept="audio/*,.wav" hidden />
+          </label>
+          <button id="selftest-btn" class="btn small" type="button" title="Mesajı yankılı, gürültülü bir odadan geçmiş gibi çözer">
+            Simülasyonla dene
+          </button>
+        </div>
+      </section>
+
+      <section class="card wide" aria-labelledby="history-title">
+        <div class="card-head">
+          <h2 id="history-title">Geçmiş</h2>
+          <button id="clear-history" class="btn small ghost" type="button">Temizle</button>
+        </div>
+        <p class="empty" id="history-empty">Henüz mesaj yok. Bir cihazda <b>Dinle</b>, diğerinde <b>Gönder</b>.</p>
+        <ol id="history" class="history"></ol>
+      </section>
+
+      <details class="card wide about">
+        <summary><h2>Nasıl çalışır?</h2></summary>
+        <div class="about-body">
+          <p>
+            Sonik bir <b>akustik modem</b>. Mesaj UTF-8 baytlara çevrilir, sonuna CRC-32 eklenir ve
+            Reed-Solomon kodu ile korunur. Her 4 bit, 16 frekanstan biri olarak çalınır; profile göre aynı
+            anda 1–4 ton birden (MFSK).
+          </p>
+          <pre class="packet" aria-label="Paket yapısı">
+│ chirp │ boşluk │ başlık (uzunluk, sürüm) │ veri + CRC-32 │ RS parite │
+  senkron          ← her sembolde 1–4 ton, her ton 4 bit →</pre>
+          <ul>
+            <li>
+              <b>Senkron:</b> paket bir <i>chirp</i> (frekans süpürmesi) ile başlar. Alıcı gelen sesi bu şablonla
+              ilişkilendirip paketin başladığı anı milisaniyenin altında bulur; chirp'in biçiminden profili de tanır.
+            </li>
+            <li>
+              <b>Yankıya karşı:</b> ardışık semboller dönüşümlü ton kümeleri kullanır. Oda yankısı önceki sembolü
+              uzatsa da çözülen kümeye düşmez.
+            </li>
+            <li>
+              <b>Hata düzeltme:</b> çözücü her sembolün ne kadar net olduğunu ölçer. Şüpheli baytlar Reed-Solomon'a
+              "silinti" olarak verilir; böylece iki kat fazla hata düzeltilir. CRC tutmayan mesaj asla gösterilmez.
+            </li>
+            <li>
+              <b>Mikrofon:</b> tarayıcının yankı engelleme, gürültü bastırma ve otomatik kazanç özellikleri kapatılır;
+              açık kalırsa tonları gürültü sanıp siler.
+            </li>
+          </ul>
+          <table class="profiles">
+            <thead>
+              <tr><th>Profil</th><th>Hız</th><th>Bant</th><th>Ne zaman</th></tr>
+            </thead>
+            <tbody id="profile-table"></tbody>
+          </table>
+          <p class="tips">
+            <b>İpuçları:</b> ses %50–90 arası iyi; hoparlörü sonuna kadar açmak bozulmaya yol açabilir. Önce aynı
+            odada 1 m ile dene. Bluetooth kulaklık/hoparlör sesi sıkıştırıp tonları bozabilir. iPhone'da sessiz mod
+            anahtarı sesi kapatabilir. İşletim sisteminin mikrofon gürültü engellemesi kapalı olmalı (macOS: Denetim
+            Merkezi → Mikrofon Modu → Standart; "Ses Yalıtımı" tonları siler). Telefonda dinlerken ekranı açık ve
+            sayfayı önde tut; arka planda tarayıcı mikrofonu durdurabilir.
+          </p>
+          <p class="tips">
+            <b>Gizlilik:</b> sunucu yok; ses de mesaj da hiçbir yere gönderilmez, her şey bu tarayıcıda işlenir. Ama
+            ses bir yayındır: yakındaki herkes mesajı çözebilir. Gizli içerik için parola kullan.
+          </p>
+        </div>
+      </details>
+    </main>
+
+    <footer class="foot">Sonik · tüm işlem tarayıcıda yapılır</footer>
+  </body>
+</html>
