@@ -2,7 +2,7 @@
 // cihazın kendi örnekleme hızına göre hesaplanır, bu yüzden 44.1 kHz'lik
 // bir verici ile 48 kHz'lik bir alıcı sorunsuz konuşur.
 //
-// Üç yöntem (mod) var; her biri literatürde yerleşik bir kipleme:
+// Yedi yöntem (mod) var; her biri literatürde yerleşik bir kipleme. İlk üçü:
 //
 // MFSK (mod: 'mfsk') — ton ızgarası, kanal c, küme s, değer v (0–15):
 //   f = fStart + toneSpacing · (c · sets · 16 + v · sets + s)

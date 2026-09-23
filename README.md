@@ -187,7 +187,7 @@ max-log LLR üretir [20] ve yumuşak kararlı Viterbi [5] ile çözer. Akustik O
   karşı); başlık en az 3 sembole yayılır; yalnız oran 1/2; dışta Reed-Solomon.
 - **Simülatörde:** Turbo net 1295 B/sn ile Mod 3 Turbo'nun 3,5 katı hızdadır, ama yalnız yan yana ve SNR ≥
   10–12 dB'de çözer; 50 cm'de çözemez. Çok hızlı (648 B/sn) yakın mesafede Mod 3 Turbo kadar sağlamdır,
-  konuşma girişiminde daha iyidir. Hızlı (188 B/sn) her koşulda Mod 3 Çok hızlı (144 B/sn) kadar ya da daha
+  konuşma girişiminde daha iyidir. Hızlı (187 B/sn) her koşulda Mod 3 Çok hızlı (144 B/sn) kadar ya da daha
   iyidir. Uzak ve çok yankılı ortamda hiçbir OFDM-QAM profili çözemez.
 
 ### Mod 7 · FT8 — 8-GFSK, Costas senkronu ve LDPC(174, 91) (deneysel)
@@ -284,7 +284,7 @@ karşılaştırmak için ham hızdan daha dürüsttür.
 | 5 · JANUS | JANUS · Ultrasonik | 2,8 | 17,4–20,6 kHz | 20 ms çip | neredeyse duyulmaz |
 | 6 · OFDM-QAM | OFDM-QAM · Turbo | 1295 | 1,8–10,2 kHz | 16-QAM, tek blok | yan yana (≤ 20 cm), sessiz |
 | 6 · OFDM-QAM | OFDM-QAM · Çok hızlı | 648 | 1,8–10,2 kHz | QPSK, tek blok | ≤ 50 cm; görsel ve dosya |
-| 6 · OFDM-QAM | OFDM-QAM · Hızlı | 188 | 1,8–10,2 kHz | QPSK, 3 blok | oda içinde ≤ 1 m |
+| 6 · OFDM-QAM | OFDM-QAM · Hızlı | 187 | 1,8–10,2 kHz | QPSK, 3 blok | oda içinde ≤ 1 m |
 | 6 · OFDM-QAM | OFDM-QAM · Yüksek · Çok hızlı | 435 | 11,3–17,2 kHz | QPSK, tek blok | ≤ 50 cm; daha az duyulur |
 | 7 · FT8 | FT8 · Sağlam | 3,1 | 1,7–8,3 kHz | 80 ms, 2 alt kanal | çok düşük SNR, uzak |
 | 7 · FT8 | FT8 · Normal | 6,3 | 1,7–8,3 kHz | 80 ms, 4 alt kanal | düşük SNR, gürültülü ortam |
@@ -293,41 +293,81 @@ karşılaştırmak için ham hızdan daha dürüsttür.
 
 ## Karşılaştırma
 
-Kanal simülatöründe paket başarısı (%, standart bant, hücre başına 6 deneme, kısa metin mesajları;
-`npm run bench`). SNR bant içidir; DRR doğrudan sesin yankıya oranı (küçüldükçe uzak).
+Kanal simülatöründe paket başarısı (%, standart bant, hücre başına 10 deneme, kısa metin mesajları;
+`npm run bench -- --trials 10 --profile …`). Her hücrede aynı mesajlar ve aynı kanal gerçeklemeleri
+kullanılır. SNR bant içidir ve ortalama güce göre ölçülür; DRR doğrudan sesin yankıya oranıdır
+(küçüldükçe uzak).
 
-| Koşul | MFSK Sağlam | MFSK Normal | MFSK Hızlı | CSS Sağlam | CSS Normal | CSS Hızlı | OFDM Çok hızlı | OFDM Turbo |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| temiz | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
-| SNR 10 dB | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
-| SNR 0 dB | 100 | 100 | 100 | 100 | 100 | 100 | 50 | 0 |
-| SNR −10 dB | 100 | 100 | 67 | 100 | 100 | 100 | 0 | 0 |
-| SNR −15 dB | 17 | 0 | 0 | 100 | 100 | 17 | 0 | 0 |
-| yan yana (RT60 0,4 s, DRR +15 dB) | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
-| 50 cm (RT60 0,5 s, DRR +6 dB) | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
-| oda (RT60 0,5 s, DRR 0 dB) | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 0 |
-| uzak (RT60 0,6 s, DRR −5 dB) | 100 | 100 | 100 | 100 | 100 | 100 | 0 | 0 |
-| yankılı salon (RT60 1 s, DRR −8 dB) | 100 | 100 | 0 | 100 | 83 | 100 | 0 | 0 |
-| çok uzak (RT60 1,2 s, DRR −12 dB, SNR 5 dB) | 100 | 17 | 0 | 100 | 100 | 50 | 0 | 0 |
-| telefon hoparlörü + oda | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 0 |
-| konuşma girişimi 0 dB | 100 | 100 | 100 | 100 | 100 | 100 | 67 | 17 |
-| elde titreme ±1 cm + oda | 100 | 100 | 100 | 50 | 100 | 100 | 83 | 0 |
-| sallama ±3 cm + oda | 100 | 100 | 100 | 0 | 83 | 100 | 33 | 0 |
-| yaklaşma 10 cm/sn + oda | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 0 |
-| kırpma (8×) + oda | 100 | 100 | 100 | 100 | 100 | 100 | 0 | 0 |
-| 44,1→48 kHz, +120 ppm, uzak | 100 | 100 | 100 | 100 | 100 | 100 | 0 | 0 |
+**Sağlam (S.) ve Normal (N.) kademeleri**
 
-Özetle: düşük SNR'de ve uzak/yankılı ortamda **CSS** (−15 dB'de CSS Normal %100, MFSK Normal %0), elde
-tutma ve kırpmada **MFSK**, yakın mesafede hızda **OFDM** öne çıkıyor. CSS'in uzun sembollü Sağlam
-profili sallamaya dayanmıyor; orada cihazlar sabit durmalı.
+| Koşul | MFSK S. | CSS S. | DSSS S. | JANUS S. | FT8 S. | MFSK N. | CSS N. | DSSS N. | JANUS N. | FT8 N. |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| *net hız (B/sn)* | *3,3* | *3,3* | *3,6* | *2,8* | *3,1* | *12,8* | *10,7* | *7,3* | *5,7* | *6,3* |
+| temiz | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| SNR 10 dB | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| SNR 0 dB | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| SNR −10 dB | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| SNR −15 dB | 20 | 100 | 100 | 100 | 100 | 0 | 100 | 100 | 0 | 90 |
+| yan yana (RT60 0,4 s, DRR +15 dB) | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| 50 cm (RT60 0,5 s, DRR +6 dB) | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| oda (RT60 0,5 s, DRR 0 dB) | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| uzak (RT60 0,6 s, DRR −5 dB) | 100 | 100 | 100 | 100 | 90 | 100 | 100 | 100 | 100 | 100 |
+| yankılı salon (RT60 1 s, DRR −8 dB) | 100 | 100 | 100 | 100 | 80 | 90 | 90 | 100 | 100 | 60 |
+| çok uzak (RT60 1,2 s, DRR −12 dB, SNR 5 dB) | 90 | 100 | 100 | 100 | 20 | 20 | 100 | 100 | 100 | 40 |
+| telefon hoparlörü + oda | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| konuşma girişimi 0 dB | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| elde titreme ±1 cm + oda | 100 | 50 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| sallama ±3 cm + oda | 100 | 0 | 100 | 100 | 100 | 100 | 90 | 100 | 100 | 100 |
+| yaklaşma 10 cm/sn + oda | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| kırpma (8×) + oda | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 90 |
+| 44,1→48 kHz, +120 ppm, uzak | 100 | 100 | 100 | 100 | 100 | 90 | 100 | 100 | 100 | 100 |
+
+**Hızlı kademeler** (H. Hızlı, ÇH Çok hızlı, T. Turbo)
+
+| Koşul | MFSK H. | CSS H. | DSSS H. | FT8 H. | QAM H. | OFDM ÇH | QAM ÇH | OFDM T. | QAM T. |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| *net hız (B/sn)* | *27,6* | *18,6* | *20,7* | *9,4* | *187* | *144* | *648* | *375* | *1295* |
+| temiz | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| SNR 10 dB | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| SNR 0 dB | 100 | 100 | 100 | 100 | 100 | 40 | 0 | 0 | 0 |
+| SNR −10 dB | 60 | 100 | 100 | 100 | 0 | 0 | 0 | 0 | 0 |
+| SNR −15 dB | 0 | 10 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| yan yana (RT60 0,4 s, DRR +15 dB) | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| 50 cm (RT60 0,5 s, DRR +6 dB) | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 10 |
+| oda (RT60 0,5 s, DRR 0 dB) | 100 | 100 | 100 | 100 | 100 | 100 | 0 | 0 | 0 |
+| uzak (RT60 0,6 s, DRR −5 dB) | 100 | 100 | 100 | 60 | 0 | 0 | 0 | 0 | 0 |
+| yankılı salon (RT60 1 s, DRR −8 dB) | 20 | 100 | 90 | 10 | 0 | 0 | 0 | 0 | 0 |
+| çok uzak (RT60 1,2 s, DRR −12 dB, SNR 5 dB) | 0 | 50 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| telefon hoparlörü + oda | 100 | 100 | 100 | 100 | 100 | 100 | 0 | 0 | 0 |
+| konuşma girişimi 0 dB | 100 | 100 | 100 | 100 | 100 | 80 | 90 | 10 | 0 |
+| elde titreme ±1 cm + oda | 100 | 100 | 100 | 100 | 100 | 90 | 0 | 0 | 0 |
+| sallama ±3 cm + oda | 100 | 100 | 100 | 100 | 100 | 50 | 0 | 0 | 0 |
+| yaklaşma 10 cm/sn + oda | 100 | 100 | 100 | 100 | 100 | 100 | 0 | 0 | 0 |
+| kırpma (8×) + oda | 100 | 100 | 100 | 100 | 100 | 0 | 0 | 0 | 0 |
+| 44,1→48 kHz, +120 ppm, uzak | 100 | 100 | 100 | 50 | 0 | 0 | 0 | 0 | 0 |
+
+Özetle:
+
+- **Düşük SNR:** −15 dB'de Sağlam kademesinde CSS, DSSS, JANUS ve FT8 %100, MFSK %20. Normal
+  kademede CSS ve DSSS %100, FT8 %90; MFSK ve JANUS %0.
+- **Uzak ve çok yankılı:** CSS, DSSS ve JANUS Sağlam/Normal her koşulda en az %90. FT8 çok uzakta %20–40'ta
+  kalır (sabit 8 tonlu kümede önceki sembolün yankısı), MFSK Normal %20.
+- **Hareket:** CSS Sağlam'ın uzun sembolleri titreme ve sallamada zamanlamayı kaybeder (%50, %0); MFSK,
+  DSSS, JANUS ve FT8 %100.
+- **Hız:** yakın mesafede OFDM-QAM (Turbo yan yana 1,3 KB/sn, Çok hızlı ≤ 50 cm'de 648 B/sn). Oda içinde
+  OFDM-QAM Hızlı (187 B/sn), Mod 3 Çok hızlı'dan (144 B/sn) hızlıdır ve gürültüye, sallamaya, kırpmaya daha
+  dayanıklıdır; uzak odada ikisi de çözemez.
+- **Bedel:** benzer dayanıklılıkta hızlar farklı: Normal kademede MFSK 12,8, CSS 10,7, DSSS 7,3, FT8 6,3,
+  JANUS 5,7 B/sn. Standart koşullar Sağlam ve Normal kademelerde doyuyor; yöntemleri ayırmak için daha zor
+  koşullar ve gerçek cihaz ölçümleri gerekir.
 
 Görsel gönderme süreleri (WebP; parça ve eşlik payı dahil):
 
-| Görsel boyutu | Turbo | Çok hızlı | Yüksek · Turbo | Ultrasonik · Turbo | MFSK Hızlı |
-|---|---:|---:|---:|---:|---:|
-| Küçük (160 px, ≈ 2,5 KB) | 10 sn | 27 sn | 14 sn | 19 sn | 2 dk 11 sn |
-| Orta (320 px, ≈ 7 KB) | 28 sn | 69 sn | 39 sn | 51 sn | — |
-| Büyük (720 px, ≈ 20 KB) | 74 sn | 3 dk 14 sn | 1 dk 48 sn | 2 dk 23 sn | — |
+| Görsel boyutu | QAM Turbo | QAM Çok hızlı | QAM Hızlı | Turbo | Çok hızlı | Yüksek · Turbo | Ultrasonik · Turbo | MFSK Hızlı |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Küçük (160 px, ≈ 2,5 KB) | 4 sn | 7 sn | 21 sn | 10 sn | 27 sn | 14 sn | 19 sn | 2 dk 11 sn |
+| Orta (320 px, ≈ 7 KB) | 10 sn | 18 sn | 53 sn | 28 sn | 69 sn | 39 sn | 51 sn | — |
+| Büyük (720 px, ≈ 20 KB) | 27 sn | 46 sn | 2 dk 31 sn | 74 sn | 3 dk 14 sn | 1 dk 48 sn | 2 dk 23 sn | — |
 
 5 dakikadan uzun sürecek aktarım başlatılmaz (telefonda ses belleği yüzlerce MB'a çıkar).
 
@@ -501,10 +541,12 @@ only after you tick "Deneysel yöntemleri aç" (enable experimental methods). Fi
 simulator always try all methods.
 
 The methods come in three bands (2–10 kHz, 11–17 kHz, near-ultrasonic) and several speed levels,
-35 profiles in total, from 2.8 B/s to 1.3 kB/s net. In the included channel simulator, CSS (normal level) decodes all packets
-at −15 dB in-band SNR and in a far reverberant room (RT60 1.2 s, DRR −12 dB) where MFSK at a similar
-rate fails. MFSK is the most tolerant of hand motion and clipping, and OFDM reaches 375 B/s net at
-close range.
+35 profiles in total, from 2.8 B/s to 1.3 kB/s net. In the included channel simulator, at −15 dB
+in-band SNR the robust levels of CSS, DSSS, JANUS and FT8 decode every packet, while MFSK decodes 20 %.
+In a far reverberant room (RT60 1.2 s, DRR −12 dB), CSS, DSSS and JANUS decode every packet, while FT8's
+fixed 8-tone set suffers from echo. Long-symbol CSS loses timing when the device is shaken, whereas
+MFSK, DSSS, JANUS and FT8 do not. OFDM-QAM reaches 1.3 kB/s net side by side and 648 B/s at 50 cm. All
+results are from the simulator; the methods have not yet been measured on real devices.
 Cross-packet Reed–Solomon parity makes image and file transfer tolerant to lost packets. Optional
 AES-GCM encryption is available. Everything stays on the device. The UI is in Turkish. Try it at
 <https://sonik.perinet.org>.
