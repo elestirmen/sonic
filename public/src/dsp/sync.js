@@ -17,6 +17,9 @@ import { chirpWaveform } from './chirp.js';
 const PEAK_WINDOW = 0.02;
 const MIN_THRESHOLD = 0.2;
 const NOISE_FACTOR = 8; // |ρ| medyanının katı (Gauss gürültüde ≈ 5.4σ)
+// Uzun ve geniş bantlı chirp'te gürültünün ρ'su ~1/√(T·B) kadardır; sabit 0,2 eşiği onun
+// 8σ'sının da üstünde kalır ve yankı + gürültüde (ρ ≈ 0,15–0,2) CSS paketlerini kaçırır.
+const minThreshold = (c) => Math.min(MIN_THRESHOLD, Math.max(0.12, 6 / Math.sqrt(c.dur * Math.abs(c.to - c.from))));
 
 export class ChirpDetector {
   constructor(fs, profiles, store) {
@@ -58,6 +61,7 @@ export class ChirpDetector {
         filter: new BandPass(lo, hi, fs),
         band: new SampleStore(Math.min(store.cap, this.n + 4 * fs)), // bir blok + gecikme payı yeter
         noise: 0.02,
+        min: minThreshold(chirp),
         cand: null,
         quietUntil: 0,
       };
@@ -125,7 +129,7 @@ export class ChirpDetector {
     for (let i = 0; i < n; i++) prefix[i + 1] = prefix[i] + seg[i] * seg[i];
 
     const L = it.len;
-    const threshold = Math.max(MIN_THRESHOLD, NOISE_FACTOR * it.noise);
+    const threshold = Math.max(it.min, NOISE_FACTOR * it.noise);
     const sample = [];
     for (let i = 0; i < hop; i++) {
       const energy = prefix[i + L] - prefix[i];

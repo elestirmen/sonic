@@ -204,20 +204,22 @@ output {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.segmented.five {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+.segmented.n2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-@media (max-width: 480px) {
-  .segmented.five {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
+.segmented.n3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 @media (max-width: 420px) {
-  .segmented:not(.three):not(.five) {
+  .segmented:not(.three):not(.n2):not(.n3) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+.segmented.method button small {
+  line-height: 1.25;
 }
 
 .segmented button {
@@ -831,15 +833,16 @@ output {
   vertical-align: top;
 }
 
-.profiles td:nth-child(2),
-.profiles td:nth-child(3) {
+.profiles td:nth-child(1),
+.profiles td:nth-child(3),
+.profiles td:nth-child(4) {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
 @media (max-width: 560px) {
-  .profiles th:nth-child(3),
-  .profiles td:nth-child(3) {
+  .profiles th:nth-child(4),
+  .profiles td:nth-child(4) {
     display: none; /* bant bilgisi profil seçicinin altında da yazıyor */
   }
 }

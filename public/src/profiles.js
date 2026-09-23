@@ -2,7 +2,7 @@
 // cihazın kendi örnekleme hızına göre hesaplanır, bu yüzden 44.1 kHz'lik
 // bir verici ile 48 kHz'lik bir alıcı sorunsuz konuşur.
 //
-// İki kipleme var:
+// Üç yöntem (mod) var; her biri literatürde yerleşik bir kipleme:
 //
 // MFSK (mod: 'mfsk') — ton ızgarası, kanal c, küme s, değer v (0–15):
 //   f = fStart + toneSpacing · (c · sets · 16 + v · sets + s)
@@ -18,8 +18,13 @@
 // alt taşıyıcılar, her biri diferansiyel PSK ile psk = 4 → 2 bit, 2 → 1 bit.
 // Sembol = cpDur koruma + 1/spacing. Bant verimi MFSK'nin onlarca katı, ama oda
 // yankısı koruma aralığını aşınca sembolleri karıştırır: yalnız yakın mesafe.
+//
+// CSS (mod: 'css', bkz. mod/css.js) — LoRa tipi chirp yayılı spektrum: fLow–fHigh
+// bandında 2^sf kaymalı chirp'ler, her sembol sf bit. Bitler K = 7 evrişimli kodla
+// (conv) korunur; alıcı yumuşak kararlı Viterbi kullanır.
 
 import { HEADER_NIBBLES } from './codec/framing.js';
+import { cssInfo } from './mod/css.js';
 
 export const PRE_SILENCE = 0.15; // bazı hoparlör yükselteçleri ilk anları yutar
 export const POST_SILENCE = 0.1;
@@ -29,6 +34,30 @@ export const BANDS = [
   { key: 'std', name: 'Standart', hint: 'en geniş cihaz desteği' },
   { key: 'high', name: 'Yüksek', hint: 'daha az duyulur; konuşma ve müzikten az etkilenir' },
   { key: 'ultra', name: 'Ultrasonik', hint: 'neredeyse duyulmaz; hoparlör/mikrofon desteği değişir' },
+];
+
+export const MODES = [
+  {
+    key: 'mfsk',
+    num: 1,
+    name: 'MFSK',
+    title: 'frekans atlamalı ton kümeleri',
+    detail: 'her sembolde 1–4 ton, her ton 4 bit; ardışık semboller farklı ton kümesinde (MFSK16, ggwave çizgisi)',
+  },
+  {
+    key: 'css',
+    num: 2,
+    name: 'CSS',
+    title: 'LoRa tipi chirp yayılı spektrum',
+    detail: 'kaydırılmış chirp\'ler, dechirp + FFT; evrişimli kod ve yumuşak kararlı Viterbi (LoRa, Vangelista 2017)',
+  },
+  {
+    key: 'ofdm',
+    num: 3,
+    name: 'OFDM',
+    title: 'DQPSK-OFDM, zaman-frekans serpiştirmeli',
+    detail: 'onlarca alt taşıyıcıda diferansiyel PSK, bloklar arası atlama (DAB, ETSI EN 300 401)',
+  },
 ];
 
 export const SPEEDS = [
@@ -44,11 +73,17 @@ export const SPEEDS = [
 // oda koşulunda hata oranı belirgin yüksekti); yankıya asıl dayanıklılığı hop verir.
 const OFDM = { mod: 'ofdm', spacing: 100, cpDur: 1 / 300, rollDur: 1 / 1500, gapDur: 0.03, maxBytes: 1024 };
 
+// CSS ortakları: evrişimli iç kod varken dış RS'nin payı küçük tutulur.
+const CSS = { mod: 'css', conv: true, gapDur: 0.02, fecRatio: 0.1, fecMin: 4, maxBytes: 255 };
+
 // Senkron chirp'leri. Aynı bantta benzer profiller bir chirp'i paylaşır: alıcı her chirp
 // için ayrı bir FFT ilintisi yürütür, dinlerken işlemci yükünün çoğu buradan gelir. Hangi
 // profil olduğu başlıktaki profil numarasından anlaşılır (paylaşan her profil denenir).
 const CHIRPS = {
   saglam: { from: 3650, to: 1450, dur: 0.2 }, // aşağı süpürme, uzun: uzak mesafe
+  stdCss: { from: 8300, to: 1700, dur: 0.25 }, // CSS: veri yukarı chirp; senkron uzun aşağı süpürme
+  highCss: { from: 17300, to: 11200, dur: 0.2 },
+  ultraCss: { from: 20600, to: 17400, dur: 0.2 },
   std: { from: 1500, to: 9000, dur: 0.15 },
   stdOfdm: { from: 10200, to: 1800, dur: 0.1 },
   high: { from: 11300, to: 17200, dur: 0.15 },
@@ -304,6 +339,104 @@ export const PROFILES = [
     fecMin: 8,
     chunkBytes: 320,
   },
+  {
+    ...CSS,
+    id: 12,
+    key: 'css-saglam',
+    name: 'CSS · Sağlam',
+    band: 'std',
+    speed: 'saglam',
+    summary: 'en uzun menzil, gürültü ve yankıda en dayanıklı; cihazlar sabit dururken',
+    fLow: 2000,
+    fHigh: 8000,
+    sf: 10,
+    chirp: CHIRPS.stdCss,
+    chunkBytes: 24,
+  },
+  {
+    ...CSS,
+    id: 13,
+    key: 'css-normal',
+    name: 'CSS · Normal',
+    band: 'std',
+    speed: 'normal',
+    summary: 'uzak mesafe ve gürültülü ortam',
+    fLow: 2000,
+    fHigh: 8000,
+    sf: 8,
+    chirp: CHIRPS.stdCss,
+    chunkBytes: 64,
+  },
+  {
+    ...CSS,
+    id: 14,
+    key: 'css-hizli',
+    name: 'CSS · Hızlı',
+    band: 'std',
+    speed: 'hizli',
+    summary: 'oda içi, birkaç metre',
+    fLow: 2000,
+    fHigh: 8000,
+    sf: 7,
+    chirp: CHIRPS.stdCss,
+    chunkBytes: 96,
+  },
+  {
+    ...CSS,
+    id: 15,
+    key: 'css-yuksek',
+    name: 'CSS · Yüksek',
+    band: 'high',
+    speed: 'normal',
+    summary: 'uzak mesafe; daha az duyulur',
+    fLow: 11500,
+    fHigh: 17000,
+    sf: 8,
+    chirp: CHIRPS.highCss,
+    chunkBytes: 64,
+  },
+  {
+    ...CSS,
+    id: 16,
+    key: 'css-yuksek-hizli',
+    name: 'CSS · Yüksek · Hızlı',
+    band: 'high',
+    speed: 'hizli',
+    summary: 'oda içi; daha az duyulur',
+    fLow: 11500,
+    fHigh: 17000,
+    sf: 7,
+    chirp: CHIRPS.highCss,
+    chunkBytes: 96,
+  },
+  {
+    ...CSS,
+    id: 17,
+    key: 'css-ultra',
+    name: 'CSS · Ultrasonik',
+    band: 'ultra',
+    speed: 'normal',
+    summary: 'neredeyse duyulmaz; birkaç metre, cihazlar sabit dururken',
+    fLow: 17600,
+    fHigh: 20400,
+    sf: 8,
+    chirp: CHIRPS.ultraCss,
+    chunkBytes: 32,
+  },
+  {
+    ...CSS,
+    id: 18,
+    key: 'css-ultra-hizli',
+    name: 'CSS · Ultrasonik · Hızlı',
+    band: 'ultra',
+    speed: 'hizli',
+    summary: 'neredeyse duyulmaz; oda içi',
+    fLow: 17600,
+    fHigh: 20400,
+    sf: 7,
+    chirp: CHIRPS.ultraCss,
+    chunkBytes: 48,
+  },
 ];
 
 export const PROFILE_BY_KEY = Object.fromEntries(PROFILES.map((p) => [p.key, p]));
@@ -314,8 +447,8 @@ export function getProfile(key) {
   return p;
 }
 
-export function findProfile(band, speed) {
-  return PROFILES.find((p) => p.band === band && p.speed === speed) ?? null;
+export function findProfile(mode, band, speed) {
+  return PROFILES.find((p) => p.mod === mode && p.band === band && p.speed === speed) ?? null;
 }
 
 export function toneFrequency(p, channel, set, value) {
@@ -375,7 +508,9 @@ export function ofdmInfo(p) {
 
 /** Bir sembolün süresi (s). */
 export function symbolDuration(p) {
-  return p.mod === 'ofdm' ? ofdmInfo(p).Ts : p.symbolDur;
+  if (p.mod === 'ofdm') return ofdmInfo(p).Ts;
+  if (p.mod === 'css') return cssInfo(p).T;
+  return p.symbolDur;
 }
 
 /** Profilin kapladığı frekans aralığı (spektrogram işaretleri ve süzgeçler için). */
@@ -386,6 +521,9 @@ export function profileBand(p) {
     const f = ofdmInfo(p).freqs;
     lo = f[0];
     hi = f[f.length - 1];
+  } else if (p.mod === 'css') {
+    lo = p.fLow;
+    hi = p.fHigh;
   } else {
     lo = p.fStart;
     hi = toneFrequency(p, p.channels - 1, p.sets - 1, VALUES_PER_TONE - 1);
@@ -407,5 +545,14 @@ export function rawByteRate(p) {
     const { Kb, bits, Ts } = ofdmInfo(p);
     return (Kb * bits) / 8 / Ts;
   }
+  if (p.mod === 'css') return p.sf / 8 / cssInfo(p).T;
   return (p.channels * 4) / 8 / p.symbolDur;
+}
+
+/**
+ * Net bilgi hızı (bayt/sn): ham hız × evrişimli kod oranı (1/2) × RS oranı. Paket başı
+ * yük (senkron, başlık) hariç; yöntemleri karşılaştırmak için ham hızdan daha dürüst.
+ */
+export function netByteRate(p) {
+  return (rawByteRate(p) * (p.conv ? 0.5 : 1)) / (1 + p.fecRatio);
 }

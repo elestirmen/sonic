@@ -165,7 +165,7 @@ export class OfdmDemod {
     this.start = start;
     this.N = Math.round(info.Tu * fs);
     this.S = info.Ts * fs;
-    this.offset = (p.windowPos ?? WINDOW_POS) * p.cpDur * fs;
+    this.offset = WINDOW_POS * p.cpDur * fs;
     this.payloadStart = HEADER_NIBBLES;
     const K = info.K;
     this.coef = new Float64Array(K);

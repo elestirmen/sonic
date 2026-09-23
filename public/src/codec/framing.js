@@ -1,36 +1,29 @@
 // Paket çerçevesi: başlık ve veri baytları, CRC ve Reed-Solomon koruması.
 //
-//   başlık : [uzunluk (2), bayraklar] + 4 RS parite  → 7 bayt (en çok 2 hatayı düzeltir)
+//   başlık : [bayraklar + uzunluk (2), profil no] + 4 RS parite → 7 bayt (en çok 2 hatayı düzeltir)
 //   veri   : içerik + CRC-32, RS bloklarına bölünüp baytları iç içe dizilir
 //
-// Bayraklar: bit 7–6 sürüm, bit 5–2 profil no, bit 1 şifreli, bit 0 tür
-// (0 metin, 1 nesne parçası: görsel/dosya, bkz. transfer.js).
+// Bayt 0: bit 7–6 sürüm, bit 5 tür (0 metin, 1 nesne parçası: görsel/dosya, bkz. transfer.js),
+// bit 4 şifreli, bit 3–0 uzunluğun üst 4 biti; bayt 1: uzunluğun alt 8 biti; bayt 2: profil no.
 // Alıcı; sürüm, profil ve uzunluğun profil sınırında olmasını kontrol ederek sahte senkronları eler.
+//
+// Evrişimli kodlu profillerde (conv) başlık ve veri baytları ayrıca bit düzeyinde K = 7,
+// oran 1/2 kodla korunur (bkz. conv.js): RS dış kod, evrişimli kod iç koddur.
 
 import { crc32 } from './crc32.js';
 import { rsEncode, rsDecode } from './reedsolomon.js';
+import { bitsToBytes, byteReliability, bytesToBits, codedLength, convEncode, viterbiDecode } from './conv.js';
 
-export const VERSION = 2;
+export const VERSION = 3;
 export const HEADER_PARITY = 4;
 export const HEADER_BYTES = 3 + HEADER_PARITY;
 export const HEADER_NIBBLES = HEADER_BYTES * 2;
+export const HEADER_CODED_BITS = codedLength(HEADER_BYTES * 8);
 export const KIND_TEXT = 0;
 export const KIND_CHUNK = 1;
 const CRC_BYTES = 4;
 export const WEAK_DB = 3; // bu marjın altındaki semboller "şüpheli" sayılır
 
-export function makeFlags(profileId, { encrypted = false, kind = KIND_TEXT } = {}) {
-  return (VERSION << 6) | ((profileId & 15) << 2) | (encrypted ? 2 : 0) | (kind & 1);
-}
-
-export function parseFlags(flags) {
-  return {
-    version: flags >> 6,
-    profileId: (flags >> 2) & 15,
-    encrypted: (flags & 2) !== 0,
-    kind: flags & 1,
-  };
-}
 
 export function bytesToNibbles(bytes) {
   const out = new Uint8Array(bytes.length * 2);
@@ -52,8 +45,9 @@ export function nibblesToBytes(nibbles, nibbleConf, byteCount) {
   return { bytes, conf };
 }
 
-export function encodeHeader(length, flags) {
-  return rsEncode(Uint8Array.of(length >> 8, length & 255, flags), HEADER_PARITY);
+export function encodeHeader(length, profileId, { encrypted = false, kind = KIND_TEXT } = {}) {
+  const b0 = (VERSION << 6) | ((kind & 1) << 5) | (encrypted ? 16 : 0) | ((length >> 8) & 15);
+  return rsEncode(Uint8Array.of(b0, length & 255, profileId), HEADER_PARITY);
 }
 
 /**
@@ -71,11 +65,10 @@ export function decodeHeader(bytes, conf, profile) {
     } catch {
       continue;
     }
-    const [hi, lo, flags] = res.data;
-    const length = (hi << 8) | lo;
-    const f = parseFlags(flags);
-    if (f.version !== VERSION || f.profileId !== profile.id || length === 0 || length > profile.maxBytes) continue;
-    return { length, encrypted: f.encrypted, kind: f.kind, corrected: res.corrected };
+    const [b0, lo, profileId] = res.data;
+    const length = ((b0 & 15) << 8) | lo;
+    if (b0 >> 6 !== VERSION || profileId !== profile.id || length === 0 || length > profile.maxBytes) continue;
+    return { length, encrypted: (b0 & 16) !== 0, kind: (b0 >> 5) & 1, corrected: res.corrected };
   }
   return null;
 }
@@ -207,4 +200,30 @@ function* cartesian(lists, prefix = []) {
     return;
   }
   for (const item of lists[prefix.length]) yield* cartesian(lists, [...prefix, item]);
+}
+
+// ---------------------------------------------------------------- evrişimli kodlu paketler
+
+/** Başlık → kodlu bitler (serpiştirme kiplemeye aittir). */
+export function convHeader(length, profile, opts) {
+  return convEncode(bytesToBits(encodeHeader(length, profile.id, opts)));
+}
+
+export function convPayload(message, profile) {
+  return convEncode(bytesToBits(encodePayload(message, profile)));
+}
+
+/** Verinin kodlu bit sayısı (alıcı başlıktan sonra bekleyeceği uzunluğu bununla bulur). */
+export function convPayloadBits(length, profile) {
+  return codedLength(payloadLayout(length, profile).total * 8);
+}
+
+export function decodeConvHeader(llr, profile) {
+  const bits = viterbiDecode(llr, HEADER_BYTES * 8);
+  return decodeHeader(bitsToBytes(bits), byteReliability(bits, llr), profile);
+}
+
+export function decodeConvPayload(llr, length, profile) {
+  const bits = viterbiDecode(llr, payloadLayout(length, profile).total * 8);
+  return decodePayload(bitsToBytes(bits), byteReliability(bits, llr), length, profile);
 }

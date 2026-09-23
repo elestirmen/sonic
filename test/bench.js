@@ -17,21 +17,26 @@ const profiles = args.profile ? args.profile.split(',').map(getProfile) : PROFIL
 const WORDS = 'merhaba dünya sonik ses dalga mesaj çözüm şifre ağaç göl ırmak üzüm kapadokya ürgüp balon peri bacası'.split(' ');
 const phone = { lowCut: 400, eq: [{ f: 2500, gainDb: 6 }, { f: 3800, gainDb: -8 }, { f: 6000, gainDb: 5 }] };
 
+const room = { rt60: 0.5, drr: 0, snr: 15 };
 const CONDITIONS = [
   { name: 'temiz', opts: {} },
   { name: 'SNR 10 dB', opts: { snr: 10 } },
-  { name: 'SNR 5 dB', opts: { snr: 5 } },
   { name: 'SNR 0 dB', opts: { snr: 0 } },
-  { name: 'SNR −5 dB', opts: { snr: -5 } },
+  { name: 'SNR −10 dB', opts: { snr: -10 } },
+  { name: 'SNR −15 dB', opts: { snr: -15 } },
   { name: 'yan yana (RT60 0.4, DRR +15)', opts: { rt60: 0.4, drr: 15, snr: 20 } },
-  { name: 'yakın (RT60 0.3, DRR +10)', opts: { rt60: 0.3, drr: 10, snr: 15 } },
   { name: '50 cm (RT60 0.5, DRR +6)', opts: { rt60: 0.5, drr: 6, snr: 20 } },
-  { name: 'oda (RT60 0.5, DRR 0)', opts: { rt60: 0.5, drr: 0, snr: 15 } },
+  { name: 'oda (RT60 0.5, DRR 0)', opts: room },
   { name: 'uzak (RT60 0.6, DRR −5)', opts: { rt60: 0.6, drr: -5, snr: 15 } },
   { name: 'yankılı salon (RT60 1.0, DRR −8)', opts: { rt60: 1.0, drr: -8, snr: 15 } },
-  { name: 'telefon hoparlörü + oda', opts: { ...phone, rt60: 0.5, drr: 0, snr: 15 } },
+  { name: 'çok uzak (RT60 1.2, DRR −12, SNR 5)', opts: { rt60: 1.2, drr: -12, snr: 5 } },
+  { name: 'telefon hoparlörü + oda', opts: { ...phone, ...room } },
   { name: 'konuşma girişimi 0 dB', opts: { babble: 0, rt60: 0.3, drr: 5 } },
-  { name: '44.1→48 kHz, +120 ppm, oda', opts: { fsOut: 48000, ppm: 120, rt60: 0.5, drr: 0, snr: 15 } },
+  { name: 'elde titreme ±1 cm + oda', opts: { ...room, motion: { amp: 0.01, freq: 0.5 } } },
+  { name: 'sallama ±3 cm + oda', opts: { ...room, motion: { amp: 0.03, freq: 0.7 } } },
+  { name: 'yaklaşma 10 cm/sn + oda', opts: { ...room, motion: { speed: -0.1 } } },
+  { name: 'kırpma (8×) + oda', opts: { ...room, gain: 8, clip: true } },
+  { name: '44.1→48 kHz, +120 ppm, uzak', opts: { fsOut: 48000, ppm: 120, rt60: 0.6, drr: -5, snr: 15 } },
 ];
 
 function randomMessage(rand, maxBytes) {

@@ -137,6 +137,34 @@ test('Çok hızlı: yankılı oda (RT60 0.5 s, DRR 0 dB, SNR 15 dB)', () => {
   assert.ok(ok >= 4, `5 denemeden ${ok} başarılı`);
 });
 
+/** Bir profilin, kanal koşulunda n denemeden kaçını çözdüğü (kelime mesajlarıyla). */
+function success(key, channel, n = 4) {
+  const p = getProfile(key);
+  let ok = 0;
+  for (let seed = 1; seed <= n; seed++) {
+    const msg = `deneme ${seed}: ${SAMPLE}`;
+    const { samples } = encodeMessage(bytes(msg), key, channel.fsIn ?? 48000);
+    const rx = simulateChannel(samples, channel.fsIn ?? 48000, { ...channel, seed });
+    const got = messages(decodeSamples(rx, channel.fsOut ?? channel.fsIn ?? 48000, { profiles: [p] }));
+    if (got.length === 1 && text(got[0].bytes) === msg) ok++;
+  }
+  return ok;
+}
+
+test('CSS: çok düşük SNR (−15 dB) ve çok uzak yankılı salonda MFSK Normal çözemezken CSS Normal çözer', () => {
+  const noisy = { snr: -15, noiseBand: [850, 12500], delay: 0.2 };
+  assert.ok(success('css-normal', noisy) >= 3, 'CSS Normal −15 dB');
+  assert.ok(success('normal', noisy) <= 1, 'MFSK Normal −15 dB beklenenden iyi: test koşulu eskidi mi?');
+  assert.ok(success('css-normal', { rt60: 1.2, drr: -12, snr: 5, noiseBand: [850, 12500] }) >= 3, 'CSS Normal çok uzak');
+});
+
+test('CSS: elde titreme, sabit hızla yaklaşma ve 44,1 → 48 kHz +120 ppm', () => {
+  const room = { rt60: 0.5, drr: 0, snr: 15, noiseBand: [850, 12500] };
+  assert.ok(success('css-normal', { ...room, motion: { amp: 0.01, freq: 0.5 } }) >= 3, 'titreme');
+  assert.ok(success('css-hizli', { ...room, motion: { speed: -0.1 } }) >= 3, 'yaklaşma');
+  assert.ok(success('css-normal', { fsIn: 44100, fsOut: 48000, ppm: 120, rt60: 0.6, drr: -5, snr: 15, noiseBand: [850, 12500] }) >= 3, 'ppm');
+});
+
 test('WAV yaz → oku → çöz', () => {
   const { samples } = encodeMessage(bytes(SAMPLE), 'normal', 44100);
   const wav = decodeWav(encodeWav(samples, 44100));

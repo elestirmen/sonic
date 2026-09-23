@@ -1,10 +1,24 @@
-// Verici tarafı: mesaj baytları → paket (başlık + veri nibble'ları) → ses dalga formu.
+// Verici tarafı: mesaj baytları → paket (başlık + veri birimleri) → ses dalga formu.
+// Birim, sert kararlı kiplemelerde (MFSK, DQPSK-OFDM) nibble; evrişimli kodlu
+// kiplemelerde (CSS) kodlu bittir.
 
 import { PRE_SILENCE, POST_SILENCE, getProfile, supportsProfile, symbolDuration } from './profiles.js';
 import { chirpWaveform } from './dsp/chirp.js';
-import { KIND_TEXT, bytesToNibbles, encodeHeader, encodePayload, makeFlags, payloadLayout } from './codec/framing.js';
+import {
+  HEADER_CODED_BITS,
+  HEADER_NIBBLES,
+  KIND_TEXT,
+  bytesToNibbles,
+  convHeader,
+  convPayload,
+  convPayloadBits,
+  encodeHeader,
+  encodePayload,
+  payloadLayout,
+} from './codec/framing.js';
 import { mfskSymbolCount, renderMfsk } from './mod/mfsk.js';
 import { ofdmSymbolCount, renderOfdm } from './mod/ofdm.js';
+import { cssSymbolCount, renderCss } from './mod/css.js';
 
 export { PROFILES, getProfile, supportsProfile } from './profiles.js';
 export { Receiver } from './receiver.js';
@@ -12,19 +26,34 @@ export { Receiver } from './receiver.js';
 /** Çok paketli akışta paketler arasındaki sessizlik (s). */
 export const PACKET_GAP = 0.06;
 
-/** Paketin başlık ve veri nibble'ları. */
+const MODS = {
+  mfsk: { render: renderMfsk, count: (p, h, n) => mfskSymbolCount(p, n) },
+  ofdm: { render: renderOfdm, count: (p, h, n) => ofdmSymbolCount(p, n) },
+  css: { render: renderCss, count: (p, h, n) => cssSymbolCount(p, h, n) },
+};
+
+/** Paketin başlık ve veri birimleri. */
 export function buildPacket(message, profile, { encrypted = false, kind = KIND_TEXT } = {}) {
   if (message.length === 0) throw new RangeError('mesaj boş');
   if (message.length > profile.maxBytes) throw new RangeError(`paket en çok ${profile.maxBytes} bayt olabilir`);
+  if (profile.conv) {
+    return { header: convHeader(message.length, profile, { encrypted, kind }), payload: convPayload(message, profile) };
+  }
   return {
-    header: bytesToNibbles(encodeHeader(message.length, makeFlags(profile.id, { encrypted, kind }))),
+    header: bytesToNibbles(encodeHeader(message.length, profile.id, { encrypted, kind })),
     payload: bytesToNibbles(encodePayload(message, profile)),
   };
 }
 
+/** Başlık ve veri birim sayıları (paketi kurmadan). */
+function unitCounts(byteLength, profile) {
+  return profile.conv
+    ? [HEADER_CODED_BITS, convPayloadBits(byteLength, profile)]
+    : [HEADER_NIBBLES, payloadLayout(byteLength, profile).total * 2];
+}
+
 export function symbolCount(byteLength, profile) {
-  const nibbles = payloadLayout(byteLength, profile).total * 2;
-  return profile.mod === 'ofdm' ? ofdmSymbolCount(profile, nibbles) : mfskSymbolCount(profile, nibbles);
+  return MODS[profile.mod].count(profile, ...unitCounts(byteLength, profile));
 }
 
 /** Tek paketin chirp başından son sembolün sonuna kadar süresi (s). */
@@ -48,8 +77,7 @@ export function estimateStreamDuration(byteLengths, profile) {
 function renderPacket(out, chirpStart, packet, profile, fs, amplitude) {
   out.set(chirpWaveform(profile.chirp, fs, amplitude), chirpStart);
   const start = chirpStart + (profile.chirp.dur + profile.gapDur) * fs;
-  const render = profile.mod === 'ofdm' ? renderOfdm : renderMfsk;
-  render(out, start, packet.header, packet.payload, profile, fs, amplitude);
+  MODS[profile.mod].render(out, start, packet.header, packet.payload, profile, fs, amplitude);
 }
 
 export function synthesize(packet, profile, fs, amplitude = 0.8) {
@@ -58,11 +86,10 @@ export function synthesize(packet, profile, fs, amplitude = 0.8) {
 
 /** Paketleri tek bir ses akışında arka arkaya dizer. */
 export function synthesizeStream(packets, profile, fs, amplitude = 0.8) {
-  const durations = packets.map((pk) => {
-    const nibbles = pk.payload.length;
-    const n = profile.mod === 'ofdm' ? ofdmSymbolCount(profile, nibbles) : mfskSymbolCount(profile, nibbles);
-    return profile.chirp.dur + profile.gapDur + n * symbolDuration(profile);
-  });
+  const mod = MODS[profile.mod];
+  const durations = packets.map(
+    (pk) => profile.chirp.dur + profile.gapDur + mod.count(profile, pk.header.length, pk.payload.length) * symbolDuration(profile),
+  );
   const total = PRE_SILENCE + POST_SILENCE + PACKET_GAP * (packets.length - 1) + durations.reduce((s, d) => s + d, 0);
   const out = new Float32Array(Math.round(total * fs));
   let t = PRE_SILENCE;

@@ -2,7 +2,7 @@
 // Alınan içerik dışarıdan gelen güvenilmez veridir: metin DOM'a yalnız textContent ile
 // yazılır, görsel ancak imzası bilinen bir raster biçimse gösterilir, dosya yalnız indirilir.
 
-import { BANDS, PROFILES, SPEEDS, findProfile, getProfile, profileBand, rawByteRate, supportsProfile } from './profiles.js';
+import { BANDS, MODES, PROFILES, SPEEDS, findProfile, getProfile, netByteRate, profileBand, supportsProfile } from './profiles.js';
 import { estimateDuration, estimateStreamDuration } from './modem.js';
 import { KIND_CHUNK, KIND_TEXT } from './codec/framing.js';
 import { ObjectAssembler, TEXT_MIME, makeChunks, maxContentBytes, packBody, planChunks, unpackBody } from './transfer.js';
@@ -42,6 +42,8 @@ const ui = {
   qualityField: $('quality-field'),
   qualityPicker: $('quality-picker'),
   fileEstimate: $('file-estimate'),
+  methodPicker: $('method-picker'),
+  methodDetail: $('method-detail'),
   bandPicker: $('band-picker'),
   speedPicker: $('speed-picker'),
   summary: $('profile-summary'),
@@ -145,8 +147,9 @@ function formatBytes(n) {
   return `${num.format(n / 1024 / 1024)} MB`;
 }
 
+/** Net bilgi hızı (evrişimli kod ve RS payı düşülmüş); yöntemler arası karşılaştırma için. */
 function formatRate(p) {
-  const r = rawByteRate(p);
+  const r = netByteRate(p);
   if (r >= 1000) return `${num.format(r / 1024)} KB/sn`;
   return `${r >= 100 ? Math.round(r) : num.format(r)} B/sn`;
 }
@@ -159,8 +162,9 @@ function formatSeconds(s) {
 
 const khz = (hz) => num.format(hz / 1000);
 
-function bandRange(key) {
-  const bands = PROFILES.filter((p) => p.band === key).map(profileBand);
+function bandRange(method, key) {
+  const bands = PROFILES.filter((p) => p.mod === method && p.band === key).map(profileBand);
+  if (!bands.length) return '—';
   const lo = Math.floor(Math.min(...bands.map((b) => b.lo)) / 500) * 500;
   const hi = Math.ceil(Math.max(...bands.map((b) => b.hi)) / 500) * 500;
   return `${khz(lo)}–${khz(hi)} kHz`;
@@ -181,8 +185,10 @@ function choice(key, title, subtitle, onClick) {
 }
 
 function renderPickers() {
-  ui.bandPicker.replaceChildren(...BANDS.map((b) => choice(b.key, b.name, bandRange(b.key), () => selectBand(b.key))));
-  ui.speedPicker.replaceChildren(...SPEEDS.map((s) => choice(s.key, s.name, '', () => selectSpeed(s.key))));
+  ui.methodPicker.replaceChildren(
+    ...MODES.map((m) => choice(m.key, `Mod ${m.num} · ${m.name}`, m.title, () => selectMethod(m.key))),
+  );
+  ui.bandPicker.replaceChildren(...BANDS.map((b) => choice(b.key, b.name, '', () => selectBand(b.key))));
   ui.qualityPicker.replaceChildren(
     ...IMAGE_PRESETS.map((q) =>
       choice(q.key, q.name, q.maxDim ? `≤ ${q.maxDim} px` : 'değiştirme', () => selectQuality(q.key)),
@@ -194,14 +200,18 @@ function renderPickers() {
 
 function renderProfileTable() {
   const body = $('profile-table');
-  const order = (p) => BANDS.findIndex((b) => b.key === p.band) * 10 + SPEEDS.findIndex((s) => s.key === p.speed);
+  const order = (p) =>
+    MODES.findIndex((m) => m.key === p.mod) * 100 +
+    BANDS.findIndex((b) => b.key === p.band) * 10 +
+    SPEEDS.findIndex((s) => s.key === p.speed);
   body.replaceChildren(
     ...PROFILES.slice()
       .sort((a, b) => order(a) - order(b))
       .map((p) => {
         const band = profileBand(p);
+        const method = MODES.find((m) => m.key === p.mod);
         const tr = document.createElement('tr');
-        for (const text of [p.name, formatRate(p), `${khz(band.lo)}–${khz(band.hi)} kHz`, p.summary]) {
+        for (const text of [`${method.num} · ${method.name}`, p.name, formatRate(p), `${khz(band.lo)}–${khz(band.hi)} kHz`, p.summary]) {
           const td = document.createElement('td');
           td.textContent = text;
           tr.append(td);
@@ -211,38 +221,69 @@ function renderProfileTable() {
   );
 }
 
+/** Yöntemin sunduğu hız kademeleri (bantların birleşimi), yavaştan hızlıya. */
+const speedsOf = (method) => SPEEDS.filter((s) => PROFILES.some((p) => p.mod === method && p.speed === s.key));
+
 function selectProfile(key, persist = true) {
   state.profile = key;
   const p = getProfile(key);
-  for (const b of ui.bandPicker.children) b.setAttribute('aria-checked', String(b.dataset.key === p.band));
+  const method = MODES.find((m) => m.key === p.mod);
+  for (const b of ui.methodPicker.children) b.setAttribute('aria-checked', String(b.dataset.key === p.mod));
+  ui.methodDetail.textContent = method.detail;
+  for (const b of ui.bandPicker.children) {
+    const range = bandRange(p.mod, b.dataset.key);
+    b.disabled = range === '—';
+    b.querySelector('small').textContent = range;
+    b.setAttribute('aria-checked', String(b.dataset.key === p.band));
+  }
+  if (ui.speedPicker.dataset.method !== p.mod) {
+    const speeds = speedsOf(p.mod);
+    ui.speedPicker.dataset.method = p.mod;
+    ui.speedPicker.className = `segmented n${speeds.length}`;
+    ui.speedPicker.replaceChildren(...speeds.map((sp) => choice(sp.key, sp.name, '', () => selectSpeed(sp.key))));
+  }
   for (const b of ui.speedPicker.children) {
-    const q = findProfile(p.band, b.dataset.key);
+    const q = findProfile(p.mod, p.band, b.dataset.key);
     b.disabled = !q;
     b.title = q ? q.summary : 'bu bantta yok';
     b.querySelector('small').textContent = q ? formatRate(q) : '—';
     b.setAttribute('aria-checked', String(b.dataset.key === p.speed));
   }
   const band = profileBand(p);
-  ui.summary.textContent = `${p.summary} · ${khz(band.lo)}–${khz(band.hi)} kHz`;
+  ui.summary.textContent = `${p.summary} · ${khz(band.lo)}–${khz(band.hi)} kHz · net ${formatRate(p)}`;
   spectrogram.setMarks([band]);
   if (band.hi > spectrogram.maxHz) setRange(20000);
   updateEstimate();
   if (persist) savePrefs();
 }
 
-/** Bant değişince aynı hız yoksa en yakınına geçilir (eşitlikte yavaş olana). */
-function selectBand(band) {
-  const speeds = SPEEDS.map((s) => s.key);
-  const i = speeds.indexOf(getProfile(state.profile).speed);
+/** Aynı yöntem ve bantta istenen hıza en yakın profil (eşitlikte yavaş olan). */
+function nearest(method, band, speed) {
+  const speeds = SPEEDS.map((sp) => sp.key);
+  const i = speeds.indexOf(speed);
   const byDistance = speeds.map((k, j) => ({ k, d: Math.abs(j - i) + (j > i ? 0.5 : 0) })).sort((a, b) => a.d - b.d);
   for (const { k } of byDistance) {
-    const p = findProfile(band, k);
-    if (p) return selectProfile(p.key);
+    const p = findProfile(method, band, k);
+    if (p) return p;
   }
+  return null;
+}
+
+function selectMethod(method) {
+  const cur = getProfile(state.profile);
+  const p = nearest(method, cur.band, cur.speed) ?? nearest(method, 'std', cur.speed);
+  if (p) selectProfile(p.key);
+}
+
+function selectBand(band) {
+  const cur = getProfile(state.profile);
+  const p = nearest(cur.mod, band, cur.speed);
+  if (p) selectProfile(p.key);
 }
 
 function selectSpeed(speed) {
-  const p = findProfile(getProfile(state.profile).band, speed);
+  const cur = getProfile(state.profile);
+  const p = findProfile(cur.mod, cur.band, speed);
   if (p) selectProfile(p.key);
 }
 
@@ -792,10 +833,15 @@ async function decodeFile(file) {
   }
 }
 
-/** Profilin amaçlandığı mesafeye uygun bir oda: Turbo yan yana, Çok hızlı ~1 m, diğerleri yankılı oda. */
+/** Profilin amaçlandığı koşula uygun bir oda: Turbo yan yana, Çok hızlı ~1 m, CSS uzak ve gürültülü. */
 function simulationFor(p) {
   const band = profileBand(p);
   const base = { noiseBand: [band.lo * 0.5, Math.min(23000, band.hi * 1.5)], lowCut: 250, delay: 0.3 };
+  if (p.mod === 'css') {
+    if (p.speed === 'saglam') return { label: 'çok uzak, yankılı salon, gürültü sinyalden 8 dB güçlü', channel: { ...base, rt60: 1.0, drr: -8, snr: -8 } };
+    if (p.speed === 'normal') return { label: 'uzak, yankılı salon, gürültü sinyalden 5 dB güçlü', channel: { ...base, rt60: 0.8, drr: -5, snr: -5 } };
+    return { label: 'uzak oda, gürültü sinyal kadar güçlü', channel: { ...base, rt60: 0.6, drr: -3, snr: 0 } };
+  }
   if (p.speed === 'turbo') return { label: 'yan yana, hafif yankı', channel: { ...base, rt60: 0.4, drr: 12, snr: 20 } };
   if (p.speed === 'cok-hizli') return { label: '1 m, yankılı oda + gürültü', channel: { ...base, rt60: 0.45, drr: 2, snr: 15 } };
   return { label: 'yankılı oda + gürültü', channel: { ...base, rt60: 0.45, drr: 0, snr: 10 } };

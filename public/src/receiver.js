@@ -6,30 +6,159 @@ import { SampleStore } from './dsp/store.js';
 import { ChirpDetector } from './dsp/sync.js';
 import {
   HEADER_BYTES,
+  HEADER_CODED_BITS,
   HEADER_NIBBLES,
   WEAK_DB,
+  convPayloadBits,
+  decodeConvHeader,
+  decodeConvPayload,
   decodeHeader,
   decodePayload,
   nibblesToBytes,
   payloadLayout,
 } from './codec/framing.js';
+import { deinterleave } from './codec/conv.js';
 import { MfskDemod, MfskReader } from './mod/mfsk.js';
 import { OfdmDemod } from './mod/ofdm.js';
+import { CssDemod } from './mod/css.js';
 
 const STORE_SECONDS = 12;
+
+const median = (list) => {
+  const s = list.slice().sort((a, b) => a - b);
+  return s.length ? s[s.length >> 1] : 0;
+};
+
+/** Sert kararlı nibble akışı (MFSK, DQPSK-OFDM): marjlar RS silintilerine dönüşür. */
+class NibbleCoder {
+  constructor(profile, demod) {
+    this.profile = profile;
+    this.demod = demod;
+    this.nibbles = [];
+    this.margins = [];
+    this.snrs = [];
+  }
+
+  push(res) {
+    for (let i = 0; i < res.values.length; i++) {
+      this.nibbles.push(res.values[i]);
+      this.margins.push(res.margins[i]);
+      this.snrs.push(res.snrs[i]);
+    }
+  }
+
+  headerReady() {
+    return this.nibbles.length >= HEADER_NIBBLES;
+  }
+
+  header() {
+    const { bytes, conf } = nibblesToBytes(this.nibbles, this.margins, HEADER_BYTES);
+    const header = decodeHeader(bytes, conf, this.profile);
+    if (header) {
+      this.layout = payloadLayout(header.length, this.profile);
+      this.start = this.demod.payloadStart;
+      this.need = this.layout.total * 2;
+      this.length = header.length;
+    }
+    return header;
+  }
+
+  progress() {
+    return { done: Math.min(this.need, Math.max(0, this.nibbles.length - this.start)), total: this.need };
+  }
+
+  payloadReady() {
+    return this.nibbles.length >= this.start + this.need;
+  }
+
+  payload() {
+    const end = this.start + this.need;
+    const { bytes, conf } = nibblesToBytes(this.nibbles.slice(this.start, end), this.margins.slice(this.start, end), this.layout.total);
+    return decodePayload(bytes, conf, this.length, this.profile);
+  }
+
+  stats() {
+    return { snrDb: median(this.snrs), weakSymbols: this.margins.filter((m) => m < WEAK_DB).length };
+  }
+
+  /** Veri bölümünün süresi (s), 'sync' olayı için. */
+  payloadSeconds() {
+    const p = this.profile;
+    const perSymbol = p.mod === 'ofdm' ? this.demod.info.nibbles : p.channels;
+    return Math.ceil(this.need / perSymbol) * symbolDuration(p);
+  }
+}
+
+/** Yumuşak kararlı akış (CSS): sembol başına LLR'ler; başlık ve veri ayrı ayrı Viterbi'den geçer. */
+class SoftCoder {
+  constructor(profile, demod) {
+    this.profile = profile;
+    this.bps = demod.bitsPerSymbol;
+    this.headerSymbols = Math.ceil(HEADER_CODED_BITS / this.bps);
+    this.symbols = [];
+    this.margins = [];
+    this.snrs = [];
+  }
+
+  push(res) {
+    if (!res.soft) return; // başvuru sembolü
+    this.symbols.push(res.soft);
+    this.margins.push(res.margin);
+    this.snrs.push(res.snr);
+  }
+
+  llr(from, count, n) {
+    const flat = new Float32Array(count * this.bps);
+    for (let j = 0; j < count; j++) flat.set(this.symbols[from + j], j * this.bps);
+    return deinterleave(flat, this.bps, n);
+  }
+
+  headerReady() {
+    return this.symbols.length >= this.headerSymbols;
+  }
+
+  header() {
+    const header = decodeConvHeader(this.llr(0, this.headerSymbols, HEADER_CODED_BITS), this.profile);
+    if (header) {
+      this.length = header.length;
+      this.bits = convPayloadBits(header.length, this.profile);
+      this.need = Math.ceil(this.bits / this.bps);
+    }
+    return header;
+  }
+
+  progress() {
+    return { done: Math.min(this.need, this.symbols.length - this.headerSymbols), total: this.need };
+  }
+
+  payloadReady() {
+    return this.symbols.length >= this.headerSymbols + this.need;
+  }
+
+  payload() {
+    return decodeConvPayload(this.llr(this.headerSymbols, this.need, this.bits), this.length, this.profile);
+  }
+
+  stats() {
+    return { snrDb: median(this.snrs), weakSymbols: this.margins.filter((m) => m < WEAK_DB).length };
+  }
+
+  payloadSeconds() {
+    return this.need * symbolDuration(this.profile);
+  }
+}
 
 /** Tek bir senkron adayından başlayıp paketi çözmeye çalışır. */
 class PacketDecoder {
   constructor(profile, sync, fs, reader) {
     this.profile = profile;
     this.sync = sync;
-    const offset = (profile.chirp.dur + profile.gapDur) * fs;
-    this.demod =
-      profile.mod === 'ofdm' ? new OfdmDemod(profile, fs, sync.pos + offset) : new MfskDemod(reader, sync.pos + Math.round(offset));
+    const start = sync.pos + (profile.chirp.dur + profile.gapDur) * fs;
+    if (profile.mod === 'ofdm') this.demod = new OfdmDemod(profile, fs, start);
+    else if (profile.mod === 'css') this.demod = new CssDemod(profile, fs, start);
+    else this.demod = new MfskDemod(reader, sync.pos + Math.round((profile.chirp.dur + profile.gapDur) * fs));
+    this.coder = profile.conv ? new SoftCoder(profile, this.demod) : new NibbleCoder(profile, this.demod);
     this.j = 0;
-    this.nibbles = [];
-    this.margins = [];
-    this.snrs = [];
     this.header = null;
     this.done = false;
     this.group = null;
@@ -42,49 +171,28 @@ class PacketDecoder {
         this.finish(rx, { ok: false, reason: 'buffer' });
         return;
       }
-      for (let i = 0; i < res.values.length; i++) {
-        this.nibbles.push(res.values[i]);
-        this.margins.push(res.margins[i]);
-        this.snrs.push(res.snrs[i]);
-      }
+      this.coder.push(res);
       this.j++;
       if (!this.header) {
-        if (this.nibbles.length < HEADER_NIBBLES) continue;
-        const { bytes, conf } = nibblesToBytes(this.nibbles, this.margins, HEADER_BYTES);
-        const header = decodeHeader(bytes, conf, this.profile);
+        if (!this.coder.headerReady()) continue;
+        const header = this.coder.header();
         if (!header) {
           this.done = true; // sahte senkron; sessizce ele
           return;
         }
         this.header = header;
-        this.layout = payloadLayout(header.length, this.profile);
-        this.payloadStart = this.demod.payloadStart;
-        this.payloadNibbles = this.layout.total * 2;
         rx._validated(this);
       } else {
         rx._progress(this);
-        if (this.nibbles.length >= this.payloadStart + this.payloadNibbles) this.finish(rx, this.decode());
+        if (this.coder.payloadReady()) this.finish(rx, this.coder.payload());
       }
     }
   }
 
-  get received() {
-    return Math.max(0, this.nibbles.length - this.payloadStart);
-  }
-
-  decode() {
-    const start = this.payloadStart;
-    const end = start + this.payloadNibbles;
-    const { bytes, conf } = nibblesToBytes(this.nibbles.slice(start, end), this.margins.slice(start, end), this.layout.total);
-    return decodePayload(bytes, conf, this.header.length, this.profile);
-  }
-
   stats(res) {
-    const snrs = this.snrs.slice().sort((a, b) => a - b);
     return {
       rho: this.sync.rho,
-      snrDb: snrs.length ? snrs[snrs.length >> 1] : 0,
-      weakSymbols: this.margins.filter((m) => m < WEAK_DB).length,
+      ...this.coder.stats(),
       corrected: res.corrected ?? 0,
       erasures: res.erasures ?? 0,
     };
@@ -113,7 +221,7 @@ export class Receiver {
     this.profiles = profiles;
     this.store = new SampleStore(Math.ceil(STORE_SECONDS * fs));
     this.detector = new ChirpDetector(fs, profiles, this.store);
-    this.readers = new Map(profiles.filter((p) => p.mod !== 'ofdm').map((p) => [p.key, new MfskReader(p, fs)]));
+    this.readers = new Map(profiles.filter((p) => p.mod === 'mfsk').map((p) => [p.key, new MfskReader(p, fs)]));
     this.decoders = [];
     this.groups = [];
     this.nextId = 1;
@@ -145,15 +253,14 @@ export class Receiver {
     if (!group) {
       group = { id: this.nextId++, profile: dec.profile, pos: dec.sync.pos, primary: dec, pending: 0, closed: false };
       this.groups.push(group);
-      const p = dec.profile;
       this.onEvent({
         type: 'sync',
         id: group.id,
-        profile: p.key,
+        profile: dec.profile.key,
         length: dec.header.length,
         encrypted: dec.header.encrypted,
         kind: dec.header.kind,
-        duration: estimatePayloadSeconds(dec),
+        duration: dec.coder.payloadSeconds(),
         rho: dec.sync.rho,
       });
     }
@@ -164,13 +271,7 @@ export class Receiver {
   _progress(dec) {
     const g = dec.group;
     if (g.primary !== dec || g.closed) return;
-    this.onEvent({
-      type: 'progress',
-      id: g.id,
-      profile: dec.profile.key,
-      done: Math.min(dec.received, dec.payloadNibbles),
-      total: dec.payloadNibbles,
-    });
+    this.onEvent({ type: 'progress', id: g.id, profile: dec.profile.key, ...dec.coder.progress() });
   }
 
   _finished(dec, res) {
@@ -206,11 +307,4 @@ export class Receiver {
     const horizon = this.store.end - 30 * this.fs;
     this.groups = this.groups.filter((x) => !x.closed || x.pos > horizon);
   }
-}
-
-/** Başlıktan sonra verinin sürmesi beklenen süre (s). */
-function estimatePayloadSeconds(dec) {
-  const p = dec.profile;
-  const perSymbol = p.mod === 'ofdm' ? dec.demod.info.nibbles : p.channels;
-  return Math.ceil(dec.payloadNibbles / perSymbol) * symbolDuration(p);
 }

@@ -7,7 +7,6 @@ import {
   decodePayload,
   encodeHeader,
   encodePayload,
-  makeFlags,
   payloadLayout,
 } from '../public/src/codec/framing.js';
 import { getProfile } from '../public/src/profiles.js';
@@ -74,7 +73,7 @@ test('Reed-Solomon: kapasite aşılınca ya hata verir ya da farklı veri döner
 
 test('Başlık: kodla, 2 hatayı düzelt, yanlış profili ve sınır dışı uzunluğu reddet', () => {
   const hizli = getProfile('hizli');
-  const hdr = encodeHeader(123, makeFlags(hizli.id, { encrypted: true, kind: 1 }));
+  const hdr = encodeHeader(123, hizli.id, { encrypted: true, kind: 1 });
   const bad = hdr.slice();
   bad[0] ^= 0x55;
   bad[5] ^= 0x0f;
@@ -84,8 +83,8 @@ test('Başlık: kodla, 2 hatayı düzelt, yanlış profili ve sınır dışı uz
   assert.equal(res.kind, 1);
   assert.equal(decodeHeader(hdr, null, getProfile('saglam')), null);
   const turbo = getProfile('turbo');
-  assert.equal(decodeHeader(encodeHeader(1000, makeFlags(turbo.id)), null, turbo).length, 1000);
-  assert.equal(decodeHeader(encodeHeader(1000, makeFlags(hizli.id)), null, hizli), null); // MFSK en çok 255
+  assert.equal(decodeHeader(encodeHeader(1000, turbo.id), null, turbo).length, 1000);
+  assert.equal(decodeHeader(encodeHeader(1000, hizli.id), null, hizli), null); // MFSK en çok 255
 });
 
 test('Veri bölümü: tek ve çok bloklu, hatalı ve silintili', () => {

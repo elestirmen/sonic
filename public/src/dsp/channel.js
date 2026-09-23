@@ -1,6 +1,6 @@
-// Akustik kanal benzetimi: hoparlör/mikrofon tepkisi, oda yankısı, örnekleme
-// hızı farkı ve saat kayması, gürültü, kırpma. Testlerde ve tarayıcıdaki
-// "kendi kendine test"te gerçek hoparlöre geçmeden modemi zorlamak için.
+// Akustik kanal benzetimi: hoparlör/mikrofon tepkisi, oda yankısı, cihaz hareketi
+// (değişken gecikme → Doppler), örnekleme hızı farkı ve saat kayması, gürültü, kırpma.
+// Testlerde ve tarayıcıdaki "kendi kendine test"te gerçek hoparlöre geçmeden modemi zorlamak için.
 
 import { FFT, nextPow2 } from './fft.js';
 import { BandPass, Biquad } from './filters.js';
@@ -75,6 +75,30 @@ export function convolve(x, h) {
   return out;
 }
 
+/**
+ * Cihaz hareketi: y(t) = x(t − d(t)), d(t) = (amp · sin(2π · freq · t) + speed · t) / c.
+ * Elde tutma titremesi (amp ~1 cm), sallama (~3 cm) ya da sabit hızla yaklaşma (speed < 0).
+ * Kübik (Catmull-Rom) ara değerleme; tüm yollara ortak gecikme (doğrudan yol baskın varsayımı).
+ */
+export function move(x, fs, { amp = 0, freq = 0.5, speed = 0 } = {}) {
+  const c = 343;
+  const base = (Math.abs(amp) + Math.abs(speed) * (x.length / fs)) / c * fs + 2; // negatif gecikme olmasın
+  const y = new Float32Array(x.length);
+  for (let i = 0; i < x.length; i++) {
+    const t = i / fs;
+    const u = i - base - ((amp * Math.sin(2 * Math.PI * freq * t) + speed * t) / c) * fs;
+    const k = Math.floor(u);
+    const f = u - k;
+    if (k < 1 || k + 2 >= x.length) continue;
+    const p0 = x[k - 1];
+    const p1 = x[k];
+    const p2 = x[k + 1];
+    const p3 = x[k + 2];
+    y[i] = p1 + 0.5 * f * (p2 - p0 + f * (2 * p0 - 5 * p1 + 4 * p2 - p3 + f * (3 * (p1 - p2) + p3 - p0)));
+  }
+  return y;
+}
+
 /** Pencereli sinc ile yeniden örnekleme; ppm alıcı saatinin sapması. */
 export function resample(x, fsIn, fsOut, ppm = 0) {
   const ratio = (fsIn / fsOut) * (1 + ppm * 1e-6);
@@ -116,6 +140,7 @@ function rms(x) {
  *   delay                baştaki ek sessizlik (s)
  *   eq: [{f, gainDb, q}] hoparlör/mikrofon renklendirmesi; lowCut, highCut (Hz)
  *   rt60, drr            oda yankısı
+ *   motion: {amp, freq, speed}  cihaz hareketi (m, Hz, m/sn), bkz. move()
  *   snr, noiseBand       bant içi SNR (dB) ve gürültü bandı [lo, hi]
  *   babble               konuşma benzeri girişim seviyesi (sinyale göre dB)
  *   gain, clip           kazanç ve ±1'de kırpma
@@ -141,6 +166,8 @@ export function simulateChannel(input, fsIn, opts = {}) {
   if (opts.rt60 > 0 || opts.drr !== undefined) {
     x = convolve(x, roomImpulse(fsIn, { rt60: opts.rt60 ?? 0.4, drr: opts.drr ?? 5, rand }));
   }
+
+  if (opts.motion) x = move(x, fsIn, opts.motion);
 
   if (fsOut !== fsIn || opts.ppm) x = resample(x, fsIn, fsOut, opts.ppm ?? 0);
 
