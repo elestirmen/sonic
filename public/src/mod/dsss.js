@@ -1,4 +1,61 @@
-// DSSS — doğrudan dizili yayılı spektrum, DBPSK ve RAKE alıcı (Mod 4). Taslak; başlık yorumu sonra.
+// DSSS — doğrudan dizili yayılı spektrum, diferansiyel BPSK ve RAKE alıcı (Mod 4).
+//
+// Klasik DSSS (Proakis ve Salehi 2008) ve IEEE 802.11-1997'nin DSSS fiziksel katmanı (madde 15:
+// 11 çipli Barker dizisi, 1 Mbit/sn'de DBPSK) çizgisinde. Her iç kodlu bit bir semboldür: N çiplik
+// yayma kesimi bitin işaretiyle çarpılır, çipler fc taşıyıcısında BPSK'dir. Hızlı profillerde kesim
+// 802.11'deki gibi her bitte aynı Barker-11 dizisidir (kısa kod); Normal ve Sağlam'da ise bit başına
+// 31 ya da 63 çip, PRBS-15 m-dizisinin (periyot 32767) ardışık kesimleridir (uzun kod; aşağıya bkz.).
+// Çip darbesi kök yükseltilmiş kosinüstür (RRC, β = 0,5), çip hızı Rc = B / (1 + β): spektrum
+// fLow–fHigh bandında kalır (std'de 4000 çip/sn). Bitler diferansiyel kodlanır: 1, bir önceki sembole
+// göre π faz farkıdır; alıcının bilmediği taşıyıcı fazı ve her yolun fazı farkta düşer.
+//
+// Alıcı her bit için sesi temel banda indirir, RRC uyumlu süzgeçten yarım çip aralıkla örnekler ve
+// bitin kesimiyle bir gecikme penceresi boyunca ilişkilendirir: c_n[L] (L yarım çip; pencere ana
+// yolun en çok 2 ms öncesinden 8 ms sonrasına, bir bitten kısa). |c|²'nin ortalaması gecikme (güç)
+// profilidir; ayrı gelen yankı yolları ayrı tepeler verir. RAKE (Price ve Green 1958): en güçlü en
+// çok 4 yol birer koldur, kolların ölçümleri toplanır. Kol başına LLR, fazı bilinmeyen iki ardışık
+// sembolün tam olabilirlik oranıdır (ln I0 farkı); düşük SNR'de bu, ağırlıklı diferansiyel birleştirmeye
+// Σ_f w_f · Re{c_f[n] · conj(c_f[n−1])}, w_f ∝ S_f / σ⁴ indirgenir. Gürültü + girişim varyansı σ²
+// profilin ortancasıdır; LLR'ler yaklaşık gerçek olabilirlik oranlarıdır (RS silinti güvenleri için).
+//
+// Oda yankısı (RT60 0,4–1,2 s) bir bitten (3–16 ms) çok uzundur. Pencereye düşmeyen geç yankı önceki
+// bitlerin verisini taşıyan bir öz girişimdir; DBPSK'de ona karşı tek savunma işlem kazancı N'dir.
+// Gücü dizinin kısmi (aperiyodik) ilintilerine bağlıdır: kısa kodda periyoda hizalı gecikmeler tam
+// ilintiyle (E_geç / N), hizasızlar kısmi ilintilerle gelir. m-dizisinin döngüsel ilintisi ideal (−1)
+// olsa da veri işareti değişince devreye giren kısmi ilintileri √N mertebesindedir; kısa m-dizisinde
+// girişim bu yüzden ~2·E_geç / N'ye çıkar (E_geç: geç yankının doğrudan yola enerji oranı). Uzun kodda
+// her bit başka bir kesim taşır, yankı rastgele bir diziyle ilişkilenir: ~E_geç / N. Barker-11'in
+// kısmi ilintileri ≤ 1 olduğundan onda kısa kod yeter. (Simülatörde çok uzak salonda, DRR −12 dB,
+// N = 31: bit başı SINR ~0 → ~1,7 dB, paket başarısı %10 → %100.) Alıcı yankıyı ayrıca üç yerde
+// hesaba katar: σ² tabanı girişimi de içerir (LLR ölçeği doğru kalır); kollar güç profilinden değil,
+// o anki kararla tutarlı "diferansiyel" profilden seçilir (katlanan yankının gecikme başına sabit bir
+// girişim deseni vardır, güç profilinde sahte tepeler yapar); başvuru bitleri sözde rastgeledir.
+//
+// Zamanlama: başvuru bitlerinin diferansiyel profilinin tepesi (parabolik inceltmeyle) ana yoldur;
+// sonra ana kolda ±½ çiplik erken-geç güç ayırıcılı, ikinci dereceden bir gecikme kilitli döngü
+// (DLL, Spilker 1963) izler, kazancı ölçülen SNR'ye göre ayarlanır. Saat farkı ve hareket gecikmeyi
+// paket boyunca çiplerce kaydırır (150 ppm → 10 s'de 6 çip). Aynı zaman ölçeklenmesi taşıyıcıda bit
+// başı bir faz dönmesi (−2π·fc·δ) yapar; karar yönlendirmeli izlenir, fiziksel sınırla kırpılır, hızın
+// ilk değeri de ondan gelir. Başka bir yol belirgin biçimde güçlenirse ana yol oraya taşınır.
+//
+// Paket: R bilinen başvuru biti (≥ 0,1 s ve ≥ 8 bit) · başlık · veri. Başlık ve veri ayrı ayrı
+// serpiştirilir (dolgusuz satır-sütun, D ≈ √n satır).
+//
+// Özgün yöntemden sapmalar:
+//  - Ses bandında 1,9–4 kçip/sn (802.11: 11 Mçip/sn, 2,4 GHz).
+//  - 802.11 yalnız kısa Barker-11 kullanır. Normal ve Sağlam'da daha çok işlem kazancı (31 ve 63 çip)
+//    ve yukarıdaki nedenle uzun kod: PN periyodu bitten çok uzun (IS-95 ters bağlantısındaki uzun kod
+//    gibi); 802.11'e benzeyen yalnız Hızlı profillerdir.
+//  - Bitler K = 7 evrişimli kod + RS ile korunur ve serpiştirilir (802.11 DSSS'de kanal kodu yoktur).
+//  - Önsöz: 802.11'in 128 bitlik SYNC + SFD alanı yerine ortak senkron chirp'i ve kısa bir sözde
+//    rastgele DBPSK başvurusu.
+//  - Darbe RRC'dir (802.11 yalnız spektrum maskesi tanımlar). Tepe/RMS'i düşürmek için temel bant
+//    1,25 · RMS'te kırpılır (bozulma ≈ −30 dB, ses gücü +1,2 dB); yine de sabit zarflı CSS'ten ~2 dB
+//    daha tepelidir.
+//  - 2 Mbit/sn DQPSK ve 802.11b CCK kademeleri yok.
+//  - Kollar diferansiyel (evre uyumsuz) birleştirilir: ağırlıklar kestirilen kol güçlerinden gelir,
+//    faz başvurusu bir önceki semboldür. Kanal fazını kestiren koherent RAKE'e göre düşük SNR'de
+//    birkaç dB kaybettirir, karşılığında hareket ve Doppler'e duyarsızdır.
 
 const TWO_PI = 2 * Math.PI;
 const ROLLOFF = 0.5; // kök yükseltilmiş kosinüs (RRC) yuvarlanma katsayısı
@@ -9,7 +66,7 @@ const CLIP = 1.25; // temel bant genliği, RMS'in bu katında kırpılır (tepe/
 const RAMP = 0.001; // paketin başında ve sonunda yumuşak geçiş (s)
 const REF_DUR = 0.1; // başvuru bitlerinin en kısa süresi (s)
 const REF_MIN = 8; // en az başvuru biti
-const PRE_CHIPS = 4; // ana yoldan önceki gecikme penceresi (çip): gürültü tabanı ve erken yollar
+const PRE_WINDOW = 0.002; // ana yoldan önceki gecikme penceresi (s): gürültü tabanı, ana yoldan zayıf erken yollar
 const DELAY_WINDOW = 0.008; // RAKE gecikme penceresi, ana yoldan sonra (s)
 const MAX_FINGERS = 4;
 const FINGER_REL = 0.1; // kol, ana yolun gücünün en az bu oranı olmalı
@@ -26,10 +83,11 @@ const TX_TABLE = 256; // verici darbe tablosunun çip başına çözünürlüğ�
 
 // Barker-11 (IEEE 802.11-1997 DSSS PHY).
 const BARKER11 = [1, -1, 1, 1, -1, 1, 1, 1, -1, -1, -1];
-// En büyük uzunluklu diziler (m-dizileri): ilkel üç terimli x^n + x^k + 1 → a[t+n] = a[t+k] ⊕ a[t].
-const M_POLY = { m15: [4, 3], m31: [5, 3], m63: [6, 5], m127: [7, 6] };
+// En büyük uzunluklu diziler (m-dizileri), ilkel üç terimli x^n + x^k + 1 → a[t+n] = a[t+k] ⊕ a[t].
+// prbs15: x^15 + x^14 + 1 (ITU-T O.150 PRBS-15), periyot 32767.
+const M_POLY = { m31: [5, 3], m63: [6, 5], m127: [7, 6], prbs15: [15, 14] };
 
-/** Yayma dizisi (±1). name: 'barker11' | 'm15' | 'm31' | 'm63' | 'm127'. */
+/** Yayma dizisi (±1), bir periyot. name: 'barker11' | 'm31' | 'm63' | 'm127' | 'prbs15'. */
 export function spreadingCode(name) {
   if (name === 'barker11') return Int8Array.from(BARKER11);
   const poly = M_POLY[name];
@@ -51,11 +109,14 @@ const refBit = (j) => (j > 0 ? REF_BITS[j % REF_BITS.length] : 0);
 
 /** Kök yükseltilmiş kosinüs darbesi (t çip cinsinden, birim enerji). */
 function rrc(t, b) {
-  if (Math.abs(t) < 1e-9) return 1 - b + (4 * b) / Math.PI;
+  const pi = Math.PI;
+  if (Math.abs(t) < 1e-9) return 1 - b + (4 * b) / pi;
   if (Math.abs(Math.abs(t) - 1 / (4 * b)) < 1e-9) {
-    return (b / Math.SQRT2) * ((1 + 2 / Math.PI) * Math.sin(Math.PI / (4 * b)) + (1 - 2 / Math.PI) * Math.cos(Math.PI / (4 * b)));
+    const x = pi / (4 * b);
+    return (b / Math.SQRT2) * ((1 + 2 / pi) * Math.sin(x) + (1 - 2 / pi) * Math.cos(x));
   }
-  return (Math.sin(Math.PI * t * (1 - b)) + 4 * b * t * Math.cos(Math.PI * t * (1 + b))) / (Math.PI * t * (1 - (4 * b * t) ** 2));
+  const num = Math.sin(pi * t * (1 - b)) + 4 * b * t * Math.cos(pi * t * (1 + b));
+  return num / (pi * t * (1 - (4 * b * t) ** 2));
 }
 
 /** Kesilmiş RRC: uçları TAPER çip boyunca kosinüsle sıfıra iner. */
@@ -73,17 +134,22 @@ function rc(t, b) {
   return Math.abs(d) < 1e-9 ? (Math.PI / 4) * s : (s * Math.cos(Math.PI * b * t)) / d;
 }
 
-/** ln I0(x), x ≥ 0 (Abramowitz ve Stegun 9.8.1–9.8.2 polinomları). */
+// ln I0(x) için Abramowitz ve Stegun 9.8.1–9.8.2 polinomları (bağıl hata < 2·10⁻⁷).
+const I0_SMALL = [1, 3.5156229, 3.0899424, 1.2067492, 0.2659732, 0.0360768, 0.0045813];
+const I0_LARGE = [
+  0.39894228, 0.01328592, 0.00225319, -0.00157565, 0.00916281, -0.02057706, 0.02635537, -0.01647633, 0.00392377,
+];
+
+function horner(c, t) {
+  let v = 0;
+  for (let i = c.length - 1; i >= 0; i--) v = v * t + c[i];
+  return v;
+}
+
+/** ln I0(x), x ≥ 0. */
 function lnI0(x) {
-  if (x < 3.75) {
-    const t = (x / 3.75) ** 2;
-    return Math.log(1 + t * (3.5156229 + t * (3.0899424 + t * (1.2067492 + t * (0.2659732 + t * (0.0360768 + t * 0.0045813))))));
-  }
-  const t = 3.75 / x;
-  const poly =
-    0.39894228 +
-    t * (0.01328592 + t * (0.00225319 + t * (-0.00157565 + t * (0.00916281 + t * (-0.02057706 + t * (0.02635537 + t * (-0.01647633 + t * 0.00392377)))))));
-  return x - 0.5 * Math.log(x) + Math.log(poly);
+  if (x < 3.75) return Math.log(horner(I0_SMALL, (x / 3.75) ** 2));
+  return x - 0.5 * Math.log(x) + Math.log(horner(I0_LARGE, 3.75 / x));
 }
 
 const infoCache = new WeakMap();
@@ -91,12 +157,17 @@ const infoCache = new WeakMap();
 /**
  * Profil bilgisi: { T, lo, hi, codedBitRate } ve iç ayrıntılar (dizi, çip hızı, taşıyıcı).
  * Çip hızı, fLow–fHigh bandına RRC yuvarlanmasıyla sığan en büyük hızdır: Rc = B / (1 + β).
+ * p.chips verilirse (uzun kod) bit başına o kadar çip, dizinin ardışık kesimlerinden alınır;
+ * verilmezse her bit dizinin bir periyodudur (kısa kod, 802.11'deki gibi).
  */
 export function dsssInfo(p) {
   let info = infoCache.get(p);
   if (!info) {
-    const code = spreadingCode(p.pn);
-    const N = code.length;
+    const seq = spreadingCode(p.pn);
+    const N = p.chips ?? seq.length;
+    const period = seq.length;
+    // dizi, kesimler periyot sınırında kopmasın diye N çip uzatılır
+    const code = Int8Array.from({ length: period + N }, (_, i) => seq[i % period]);
     const beta = p.rolloff ?? ROLLOFF;
     const Rc = (p.fHigh - p.fLow) / (1 + beta);
     const T = N / Rc;
@@ -106,6 +177,7 @@ export function dsssInfo(p) {
       hi: p.fHigh,
       codedBitRate: 1 / T,
       code,
+      period,
       N,
       beta,
       Rc,
@@ -115,6 +187,12 @@ export function dsssInfo(p) {
     infoCache.set(p, info);
   }
   return info;
+}
+
+/** j. bitin yayma kesimi (N çip). Kısa kodda hep aynı periyot, uzun kodda dizinin j. kesimi. */
+export function bitCode(info, j) {
+  const o = (j * info.N) % info.period;
+  return info.code.subarray(o, o + info.N);
 }
 
 export function dsssSymbolCount(p, headerBits, payloadBits) {
@@ -130,7 +208,7 @@ const orders = new Map();
  * hecesi) Viterbi'ye ⌈n / D⌉ bit aralıklı tek tük hatalar olarak ulaşır. Diferansiyel algılamada
  * ardışık iki bit aynı gürültülü başvuruyu paylaşır; serpiştirme bu ilintiyi de dağıtır.
  */
-function interleaveOrder(n) {
+export function interleaveOrder(n) {
   let order = orders.get(n);
   if (!order) {
     const D = Math.max(1, Math.min(MAX_DEPTH, Math.floor(Math.sqrt(n))));
@@ -167,7 +245,8 @@ function txTable(beta) {
  * headerBits / payloadBits: iç kodlu (serpiştirilmemiş) bitler.
  */
 export function renderDsss(out, start, headerBits, payloadBits, p, fs, amplitude) {
-  const { code, N, Rc, fc, beta, ref } = dsssInfo(p);
+  const info = dsssInfo(p);
+  const { N, Rc, fc, beta, ref } = info;
   const count = ref + headerBits.length + payloadBits.length;
   // DBPSK: her kodlu bit, bir önceki sembole göre faz farkıdır (1 → π).
   const sym = new Int8Array(count);
@@ -194,6 +273,8 @@ export function renderDsss(out, start, headerBits, payloadBits, p, fs, amplitude
   const rampN = RAMP * fs;
   const w = (TWO_PI * fc) / fs;
   const gain = amplitude / CLIP;
+  let codeBit = 0;
+  let code = bitCode(info, 0);
   for (let i = first; i <= last; i++) {
     const u = (i - start) / spc; // çip cinsinden zaman
     const m0 = Math.max(0, Math.ceil(u - 0.5 - TX_TAPS));
@@ -205,6 +286,7 @@ export function renderDsss(out, start, headerBits, payloadBits, p, fs, amplitude
       if (k < 0 || k >= lim) continue; // kayan nokta: pencerenin tam ucu
       const h = table[k] + (pos - k) * (table[k + 1] - table[k]);
       const bit = (m / N) | 0;
+      if (bit !== codeBit) code = bitCode(info, (codeBit = bit));
       x += sym[bit] * code[m - bit * N] * h;
     }
     if (x > CLIP) x = CLIP;
@@ -244,8 +326,8 @@ function median(values, tmp) {
 /**
  * Tek paketin DSSS çözücüsü. Her bit için: temel banda indirme, RRC uyumlu süzgeç (yarım çip
  * aralıklı), yayma dizisiyle gecikme penceresi boyunca ilinti → c[L]. |c[L]|²'nin ortalaması
- * gecikme profilidir (PDP); en güçlü yollar RAKE kollarıdır. Kollar diferansiyel birleştirilir:
- * z = Σ w_f · Re{c_f[n] · conj(c_f[n−1]) · e^{−jφ}}.
+ * gecikme profilidir (PDP); en güçlü yollar RAKE kollarıdır. Kolların diferansiyel LLR'leri toplanır
+ * (bkz. detect). read(j): başvuru bitlerinde {} (kazanım), diğerlerinde { soft: [LLR], margin, snr }.
  */
 export class DsssDemod {
   constructor(p, fs, start) {
@@ -257,7 +339,7 @@ export class DsssDemod {
     this.hs = this.spc / 2; // yarım çip (örnek)
     this.symN = info.T * fs;
     const N = info.N;
-    const preChips = Math.min(PRE_CHIPS, Math.floor((N - 1) / 4));
+    const preChips = Math.min(Math.round(PRE_WINDOW * info.Rc), Math.floor((N - 1) / 4));
     const postChips = Math.max(1, Math.min(Math.round(DELAY_WINDOW * info.Rc), N - 1 - preChips));
     this.pre = 2 * preChips; // gecikme penceresi, yarım çip cinsinden
     this.nLag = 2 * (preChips + postChips) + 1;
@@ -285,17 +367,20 @@ export class DsssDemod {
     this.offset = 0;
     this.rate = 0;
     this.maxRate = MAX_RATE * this.symN;
+    this.maxPhase = TWO_PI * info.fc * MAX_RATE * info.T; // bit başı faz dönmesinin sınırı
     this.accR = 0; // faz dönmesi biriktiricisi
     this.accI = 0;
     this.phase = 0;
     this.noise = 0;
     this.fingers = [];
+    this.moves = 0; // ana yol değişimi sayısı (tanı için)
     // Erken-geç ayırıcının eğimi: |p(½ − ε)|² − |p(½ + ε)|² ≈ kd · ε · |p(0)|² (ε çip).
     const b = info.beta;
     const d = 1e-3;
     this.p5 = rc(0.5, b);
     this.kd = (-4 * this.p5 * (rc(0.5 + d, b) - rc(0.5 - d, b))) / (2 * d);
     this.q = (TRACK * info.T * info.Rc) ** 2; // bit başı beklenen gecikme değişimi (çip²)
+    this.selfNoise = info.period > N ? 1 / N : 0; // uzun kodda yolun kendi yan tepe gücü / S
     this.bitsPerSymbol = 1;
   }
 
@@ -349,7 +434,8 @@ export class DsssDemod {
       zr[m] = sr;
       zi[m] = si;
     }
-    const { code, N } = this.info;
+    const { N } = this.info;
+    const code = bitCode(this.info, j);
     const inv = 1 / N;
     for (let l = 0; l < this.nLag; l++) {
       let sr = 0;
@@ -446,21 +532,21 @@ export class DsssDemod {
     }
     const d = m - l0;
     this.offset += (d + frac) * this.hs;
-    // faz dönmesi (bit başı)
-    const vr = Vr[m];
-    const vi = Vi[m];
-    this.phase = Math.atan2(vi, vr);
-    const w = S / (S * noise + (noise * noise) / 2);
-    this.accR = (w * vr) / (R - 1);
-    this.accI = (w * vi) / (R - 1);
-    // Zaman ölçeklenmesi (saat farkı, hareket) taşıyıcı fazını ve çip zamanlamasını birlikte
-    // kaydırır: gecikme bit başına δ artınca faz −2π·fc·δ döner. Hız, fazdan başlatılır;
-    // güvenilirliği (faz kestiriminin varyansı) öncül belirsizlikle tartılır.
+    // Bit başı faz dönmesi φ ve gecikme değişim hızı. Taşıyıcı osilatörü yok: zaman ölçeklenmesi
+    // (saat farkı, hareket) fazı ve çip zamanlamasını birlikte kaydırır, gecikme bit başına δ
+    // artınca faz −2π·fc·δ döner. Böylece |φ| ≤ 2π·fc·MAX_RATE·T sınırlıdır; düşük SNR'de
+    // ölçülen φ (başvurulardan, varyansı ≈ (2/γ + 1/γ²) / 2(R − 1)) bu öncül belirsizlikle
+    // tartılır, sonra hız da ondan başlatılır.
     const g = S / noise;
     const phaseVar = (2 / g + 1 / (g * g)) / (2 * (R - 1));
-    const prior = ((TWO_PI * this.info.fc * MAX_RATE * this.info.T) / 2) ** 2;
+    const prior = (this.maxPhase / 2) ** 2;
+    const phi = Math.atan2(Vi[m], Vr[m]) * (prior / (prior + phaseVar));
+    this.phase = Math.max(-this.maxPhase, Math.min(this.maxPhase, phi));
+    const w = S / (S * noise + (noise * noise) / 2);
+    this.accR = w * S * Math.cos(this.phase);
+    this.accI = w * S * Math.sin(this.phase);
     const rate = (-this.phase / (TWO_PI * this.info.fc)) * this.fs;
-    this.rate = Math.max(-this.maxRate, Math.min(this.maxRate, (prior / (prior + phaseVar)) * rate));
+    this.rate = Math.max(-this.maxRate, Math.min(this.maxRate, rate));
     const cph = Math.cos(this.phase);
     const sph = Math.sin(this.phase);
     for (let l = 0; l < nLag; l++) this.D[l] = (Vr[l] * cph + Vi[l] * sph) / (R - 1);
@@ -490,8 +576,9 @@ export class DsssDemod {
       let best = -1;
       for (let l = 0; l < nLag; l++) {
         if (D[l] < zmin || D[l] < FINGER_REL * Dmain || (best >= 0 && D[l] <= D[best])) continue;
-        if (fingers.some((x) => Math.abs(x - l) < 2)) continue;
-        best = l;
+        let near = false;
+        for (const x of fingers) near ||= Math.abs(x - l) < 2;
+        if (!near) best = l;
       }
       if (best < 0) break;
       fingers.push(best);
@@ -513,9 +600,12 @@ export class DsssDemod {
       const S = power[f];
       const ar = cr[l] * cph + ci[l] * sph; // y1 · e^{−jφ}
       const ai = ci[l] * cph - cr[l] * sph;
-      const g = (2 * Math.sqrt(S)) / noise;
+      // Uzun kodda her yolun kısmi ilintileri bitten bite rastgeledir ve tüm gecikmelere ~S/N güç
+      // taşır: tabanın (ortanca) içindedir ama kolun kendi gecikmesinde yoktur.
+      const n = Math.max(0.5 * noise, noise - S * this.selfNoise);
+      const g = (2 * Math.sqrt(S)) / n;
       llr += lnI0(g * Math.hypot(ar + pr[l], ai + pi[l])) - lnI0(g * Math.hypot(ar - pr[l], ai - pi[l]));
-      const w = S / (S * noise + (noise * noise) / 2);
+      const w = S / (S * n + (n * n) / 2);
       vr += w * (cr[l] * pr[l] + ci[l] * pi[l]);
       vi += w * (ci[l] * pr[l] - cr[l] * pi[l]);
       Stot += S;
@@ -528,7 +618,7 @@ export class DsssDemod {
     const mp = this.muPhase;
     this.accR += mp * (sgn * vr - this.accR);
     this.accI += mp * (sgn * vi - this.accI);
-    this.phase = Math.atan2(this.accI, this.accR);
+    this.phase = Math.max(-this.maxPhase, Math.min(this.maxPhase, Math.atan2(this.accI, this.accR)));
     // Erken-geç gecikme kilitli döngü (DLL), ana kolda ±½ çip: ikinci dereceden (alfa-beta).
     const E = cr[l0 - 1] * cr[l0 - 1] + ci[l0 - 1] * ci[l0 - 1];
     const L = cr[l0 + 1] * cr[l0 + 1] + ci[l0 + 1] * ci[l0 + 1];
@@ -539,6 +629,20 @@ export class DsssDemod {
     this.offset += alpha * e * this.spc;
     this.rate = Math.max(-this.maxRate, Math.min(this.maxRate, this.rate + beta * e * this.spc));
     this.offset += this.rate;
+    // Ana yol değişimi: tutarlı profilde başka bir yol belirgin biçimde güçlüyse (doğrudan yol
+    // kapandı, kazanım gürültü tepesine kilitlendi) zamanlama oraya taşınır; tam sayı gecikme
+    // adımı olduğundan diziler kaydırılarak korunur.
+    let top = l0;
+    for (let l = 0; l < nLag; l++) if (D[l] > D[top]) top = l;
+    if (top !== l0 && D[top] > 2 * Math.max(0, Dmain) && D[top] > 4 * zmin) {
+      const d = top - l0;
+      this.offset += d * this.hs;
+      this.shift(P, d, noise);
+      this.shift(D, d, 0);
+      this.shift(cr, d, 0);
+      this.shift(ci, d, 0);
+      this.moves++;
+    }
     this.noise = noise;
     this.fingers = fingers;
     const snr = 10 * Math.log10(Stot / noise) - 10 * Math.log10(this.info.N);
