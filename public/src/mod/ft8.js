@@ -183,10 +183,10 @@ const PULSE = [-1, 0, 1].map((d) =>
 );
 
 /**
- * Semboller out'a eklenir (başlık ve veri kodlu bitleri ayrı çerçevelerde). Her alt kanal sürekli
- * fazlı GFSK'dir: anlık frekans, komşu sembollerin tonlarının Gauss yumuşatmalı toplamıdır. İlk ve
- * son sembolün dışı aynı tonla uzatılır, paketin iki ucu T/8'lik kosinüs rampayla açılıp kapanır
- * (ft8_lib'deki gibi). Tepe genlik amplitude'a ölçeklenir.
+ * Semboller out'a eklenir (başlık ve veri kod sözcükleri yuvalara slotCodeword ile dağılır). Her alt
+ * kanal sürekli fazlı GFSK'dir: anlık frekans, komşu sembollerin tonlarının Gauss yumuşatmalı
+ * toplamıdır. İlk ve son sembolün dışı aynı tonla uzatılır, paketin iki ucu T/8'lik kosinüs rampayla
+ * açılıp kapanır (ft8_lib'deki gibi). Alt kanalların toplamının tepesi amplitude'a ölçeklenir.
  */
 export function renderFt8(out, start, headerBits, payloadBits, p, fs, amplitude) {
   const { T, df, N, bases } = ft8Info(p);

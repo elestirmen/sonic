@@ -490,6 +490,7 @@ export const PROFILES = [
   // ---- Mod 7 · FT8 (id 50–59, anahtar ft8-…)
   // FT8 (bkz. mod/ft8.js): symbolDur = T, ton aralığı 1 / T (h = 1); subchannels adet eş zamanlı
   // FT8 sinyali, her biri 8 ton + 2 ton boşluk. Yankılı odada T = 80 ms, 40 ms'den belirgin iyi.
+  // Paket süresi 79 sembollük çerçevenin katıdır; chunkBytes (+ 5 bayt parça başlığı) 2 çerçeveye sığar.
   {
     id: 50,
     key: 'ft8-saglam',
@@ -507,7 +508,7 @@ export const PROFILES = [
     fecRatio: 0.15,
     fecMin: 6,
     maxBytes: 255,
-    chunkBytes: 24,
+    chunkBytes: 19,
     sim: { label: 'yankılı oda, gürültü sinyalden 8 dB güçlü', channel: { rt60: 0.5, drr: 0, snr: -8 } },
   },
   {
@@ -527,7 +528,7 @@ export const PROFILES = [
     fecRatio: 0.15,
     fecMin: 6,
     maxBytes: 255,
-    chunkBytes: 48,
+    chunkBytes: 59,
     sim: { label: 'yankılı oda, gürültü sinyalden 5 dB güçlü', channel: { rt60: 0.5, drr: 0, snr: -5 } },
   },
   {
@@ -547,7 +548,7 @@ export const PROFILES = [
     fecRatio: 0.15,
     fecMin: 6,
     maxBytes: 255,
-    chunkBytes: 64,
+    chunkBytes: 39,
     sim: { label: 'yankılı oda + gürültü', channel: { rt60: 0.45, drr: 0, snr: 0 } },
   },
   {
@@ -567,7 +568,7 @@ export const PROFILES = [
     fecRatio: 0.15,
     fecMin: 6,
     maxBytes: 255,
-    chunkBytes: 48,
+    chunkBytes: 39,
     sim: { label: 'yankılı oda, gürültü sinyal kadar güçlü', channel: { rt60: 0.45, drr: 0, snr: 0 } },
   },
 ];
