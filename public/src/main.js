@@ -44,6 +44,7 @@ const ui = {
   fileEstimate: $('file-estimate'),
   methodPicker: $('method-picker'),
   methodDetail: $('method-detail'),
+  experimental: $('experimental'),
   bandPicker: $('band-picker'),
   speedPicker: $('speed-picker'),
   summary: $('profile-summary'),
@@ -87,6 +88,7 @@ const ui = {
 
 const state = {
   profile: 'normal',
+  experimental: false,
   mode: 'text',
   quality: 'orta',
   attachment: null,
@@ -132,6 +134,7 @@ function saveJson(key, value) {
 function savePrefs() {
   saveJson(PREFS_KEY, {
     profile: state.profile,
+    experimental: state.experimental,
     volume: Number(ui.volume.value),
     mode: state.mode,
     quality: state.quality,
@@ -184,10 +187,38 @@ function choice(key, title, subtitle, onClick) {
   return b;
 }
 
-function renderPickers() {
+function badge(text) {
+  const span = document.createElement('span');
+  span.className = 'badge';
+  span.textContent = text;
+  return span;
+}
+
+const modeOf = (p) => MODES.find((m) => m.key === p.mod);
+
+function renderMethods() {
+  const modes = MODES.filter((m) => state.experimental || !m.experimental);
+  ui.methodPicker.className = `segmented method n${modes.length}`;
   ui.methodPicker.replaceChildren(
-    ...MODES.map((m) => choice(m.key, `Mod ${m.num} · ${m.name}`, m.title, () => selectMethod(m.key))),
+    ...modes.map((m) => {
+      const b = choice(m.key, `Mod ${m.num} · ${m.name}`, m.title, () => selectMethod(m.key));
+      if (m.experimental) b.append(badge('deneysel'));
+      return b;
+    }),
   );
+}
+
+/** Deneysel yöntemler (Mod 2, 3) kapalıyken seçili profil Mod 1'in en yakın profiline döner. */
+function setExperimental(on, persist = true) {
+  state.experimental = on;
+  ui.experimental.checked = on;
+  renderMethods();
+  const cur = getProfile(state.profile);
+  const p = !on && modeOf(cur).experimental ? nearest('mfsk', cur.band, cur.speed) : cur;
+  selectProfile(p.key, persist);
+}
+
+function renderPickers() {
   ui.bandPicker.replaceChildren(...BANDS.map((b) => choice(b.key, b.name, '', () => selectBand(b.key))));
   ui.qualityPicker.replaceChildren(
     ...IMAGE_PRESETS.map((q) =>
@@ -195,7 +226,7 @@ function renderPickers() {
     ),
   );
   for (const b of ui.qualityPicker.children) b.setAttribute('aria-checked', String(b.dataset.key === state.quality));
-  selectProfile(state.profile, false);
+  setExperimental(state.experimental, false);
 }
 
 function renderProfileTable() {
@@ -209,13 +240,14 @@ function renderProfileTable() {
       .sort((a, b) => order(a) - order(b))
       .map((p) => {
         const band = profileBand(p);
-        const method = MODES.find((m) => m.key === p.mod);
+        const method = modeOf(p);
         const tr = document.createElement('tr');
         for (const text of [`${method.num} · ${method.name}`, p.name, formatRate(p), `${khz(band.lo)}–${khz(band.hi)} kHz`, p.summary]) {
           const td = document.createElement('td');
           td.textContent = text;
           tr.append(td);
         }
+        if (method.experimental) tr.firstChild.append(badge('deneysel'));
         return tr;
       }),
   );
@@ -227,7 +259,7 @@ const speedsOf = (method) => SPEEDS.filter((s) => PROFILES.some((p) => p.mod ===
 function selectProfile(key, persist = true) {
   state.profile = key;
   const p = getProfile(key);
-  const method = MODES.find((m) => m.key === p.mod);
+  const method = modeOf(p);
   for (const b of ui.methodPicker.children) b.setAttribute('aria-checked', String(b.dataset.key === p.mod));
   ui.methodDetail.textContent = method.detail;
   for (const b of ui.bandPicker.children) {
@@ -1164,6 +1196,7 @@ function checkEnvironment() {
 function init() {
   const prefs = loadJson(PREFS_KEY, {});
   if (prefs.profile && PROFILES.some((p) => p.key === prefs.profile)) state.profile = prefs.profile;
+  state.experimental = prefs.experimental === true;
   if (Number.isFinite(prefs.volume)) ui.volume.value = prefs.volume;
   if (IMAGE_PRESETS.some((q) => q.key === prefs.quality)) state.quality = prefs.quality;
   ui.loop.checked = !!prefs.loop;
@@ -1225,6 +1258,7 @@ function init() {
     savePrefs();
   });
   ui.loop.addEventListener('change', savePrefs);
+  ui.experimental.addEventListener('change', () => setExperimental(ui.experimental.checked));
   ui.sendBtn.addEventListener('click', send);
   ui.stopBtn.addEventListener('click', stopPlayback);
   ui.wavBtn.addEventListener('click', downloadWav);

@@ -22,6 +22,9 @@
 // CSS (mod: 'css', bkz. mod/css.js) — LoRa tipi chirp yayılı spektrum: fLow–fHigh
 // bandında 2^sf kaymalı chirp'ler, her sembol sf bit. Bitler K = 7 evrişimli kodla
 // (conv) korunur; alıcı yumuşak kararlı Viterbi kullanır.
+//
+// Varsayılan yöntem MFSK'dir. CSS ve OFDM deneyseldir (experimental): arayüz onları
+// ancak kullanıcı açınca sunar. Alıcı her zaman üç yöntemi de çözer.
 
 import { HEADER_NIBBLES } from './codec/framing.js';
 import { cssInfo } from './mod/css.js';
@@ -48,6 +51,7 @@ export const MODES = [
     key: 'css',
     num: 2,
     name: 'CSS',
+    experimental: true,
     title: 'LoRa tipi chirp yayılı spektrum',
     detail: 'kaydırılmış chirp\'ler, dechirp + FFT; evrişimli kod ve yumuşak kararlı Viterbi (LoRa, Vangelista 2017)',
   },
@@ -55,6 +59,7 @@ export const MODES = [
     key: 'ofdm',
     num: 3,
     name: 'OFDM',
+    experimental: true,
     title: 'DQPSK-OFDM, zaman-frekans serpiştirmeli',
     detail: 'onlarca alt taşıyıcıda diferansiyel PSK, bloklar arası atlama (DAB, ETSI EN 300 401)',
   },

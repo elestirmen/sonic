@@ -86,8 +86,12 @@
 
         <div class="field">
           <span class="label" id="method-label">Yöntem</span>
-          <div class="segmented three method" id="method-picker" role="radiogroup" aria-labelledby="method-label"></div>
+          <div class="segmented method" id="method-picker" role="radiogroup" aria-labelledby="method-label"></div>
           <span class="hint" id="method-detail"></span>
+          <label class="check">
+            <input id="experimental" type="checkbox" />
+            <span>Deneysel yöntemleri aç <small>(Mod 2 · CSS, Mod 3 · OFDM; sonuç ortama ve cihaza göre değişebilir)</small></span>
+          </label>
         </div>
         <div class="field">
           <span class="label" id="band-label">Frekans bandı</span>
@@ -204,13 +208,13 @@
               ilişkilendirip paketin başladığı anı milisaniyenin altında bulur; chirp'in biçiminden profili de tanır.
             </li>
             <li>
-              <b>Mod 1 · MFSK (frekans atlamalı ton kümeleri):</b> her 4 bit 16 frekanstan biri olarak çalınır;
+              <b>Mod 1 · MFSK (frekans atlamalı ton kümeleri, varsayılan):</b> her 4 bit 16 frekanstan biri olarak çalınır;
               aynı anda 1–4 ton. Ardışık semboller dönüşümlü ton kümeleri kullanır, oda yankısı önceki sembolü
               uzatsa da çözülen kümeye düşmez. Hata düzeltme sert kararlı Reed-Solomon ve silintiler.
               <i>MFSK16 (Greenman), ggwave (Gerganov) çizgisi.</i>
             </li>
             <li>
-              <b>Mod 2 · CSS (LoRa tipi chirp yayılı spektrum):</b> her sembol bandı baştan sona tarayan bir chirp;
+              <b>Mod 2 · CSS (LoRa tipi chirp yayılı spektrum, deneysel):</b> her sembol bandı baştan sona tarayan bir chirp;
               bilgi başlangıç frekansının döngüsel kaymasında (SF bit). Alıcı dechirp + FFT ile tek bir tepe arar:
               gürültü ve dağınık yankı 2<sup>SF</sup> kutuya yayılırken sinyal tek kutuda toplanır. Bitler K = 7
               evrişimli kodla korunur, çözücü yumuşak kararlı Viterbi kullanır; zaman ve Doppler, chirp'in sarma
@@ -218,7 +222,7 @@
               <i>Vangelista 2017 (LoRa); Lee vd. 2015 (havadan akustik chirp); Viterbi 1967.</i>
             </li>
             <li>
-              <b>Mod 3 · DQPSK-OFDM (zaman-frekans serpiştirmeli):</b> bantta 100 Hz aralıklı onlarca alt
+              <b>Mod 3 · DQPSK-OFDM (zaman-frekans serpiştirmeli, deneysel):</b> bantta 100 Hz aralıklı onlarca alt
               taşıyıcı birden çalar, her biri bir önceki kullanımına göre faz farkıyla 1–2 bit taşır. Taşıyıcılar
               bloklara bölünür ve semboller bloklar arasında atlar; bir blok, eski yankısı sönünce yeniden
               kullanılır. MFSK'nin 5–15 katı hız; yakın mesafe için. <i>DAB (ETSI EN 300 401) çizgisi.</i>

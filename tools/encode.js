@@ -1,6 +1,6 @@
 // Mesajı ya da dosyayı WAV'a çevirir.
 //   node tools/encode.js "mesaj" [çıktı.wav] [--profil normal] [--hiz 48000] [--parola gizli]
-//   node tools/encode.js --dosya foto.webp [çıktı.wav] [--profil turbo] …
+//   node tools/encode.js --dosya foto.webp [çıktı.wav] [--profil hizli] …
 // Tek pakete sığmayan metin ve her dosya parçalanıp paketler arası hata düzeltmeyle gönderilir.
 
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -26,7 +26,7 @@ if (!text && !flags.dosya) {
   );
   process.exit(1);
 }
-const profile = getProfile(flags.profil ?? (flags.dosya ? 'turbo' : 'normal'));
+const profile = getProfile(flags.profil ?? (flags.dosya ? 'hizli' : 'normal'));
 const rate = Number(flags.hiz ?? 48000);
 const opts = { amplitude: 0.9, encrypted: !!flags.parola };
 const seal = (bytes) => (flags.parola ? encryptBytes(bytes, flags.parola) : bytes);

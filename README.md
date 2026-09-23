@@ -35,8 +35,10 @@ kendisi tanır.
    yapıştırma da olur; telefonda doğrudan fotoğraf çekilebilir).
 3. **Yöntem**, **Frekans bandı** ve **Hız** seç, **Sese çevir ve çal**'a bas.
 
-Hangi yöntem? Uzak, gürültülü ya da çok yankılı ortamda **Mod 2 · CSS**; oda içinde birkaç
-metrede **Mod 1 · MFSK**; cihazlar yakınken ve görsel/dosya için **Mod 3 · OFDM**.
+Hangi yöntem? Varsayılan **Mod 1 · MFSK**. **Mod 2 · CSS** ve **Mod 3 · OFDM** deneyseldir;
+Yöntem'in altındaki **Deneysel yöntemleri aç** kutusuyla seçilebilir hale gelir (alıcı üç yöntemi
+de her zaman çözer). Deneysellerden CSS uzak, gürültülü ya da çok yankılı ortam için; OFDM cihazlar
+yakınken, görsel ve dosya için.
 
 İpuçları:
 
@@ -50,7 +52,7 @@ metrede **Mod 1 · MFSK**; cihazlar yakınken ve görsel/dosya için **Mod 3 · 
 
 ## Yöntemler
 
-### Mod 1 · MFSK — frekans atlamalı ton kümeleri
+### Mod 1 · MFSK — frekans atlamalı ton kümeleri (varsayılan)
 
 Her 4 bit 16 frekanstan biri olarak çalınır; profile göre aynı anda 1–4 ton. Ardışık semboller
 dönüşümlü ton kümeleri kullanır: bir önceki sembolün oda yankısı, çözülen kümeye düşmez; bir kümenin
@@ -58,7 +60,7 @@ yeniden duyulmasına kadar geçen süre ("yankı yaşı") yankıya dayanıklıl�
 pencereli Goertzel ile; her kararın güven marjı tutulur ve şüpheli baytlar Reed-Solomon'a silinti
 olarak verilir (2·hata + silinti ≤ parite). MFSK16 [1] ve ggwave [2] çizgisinde.
 
-### Mod 2 · CSS — LoRa tipi chirp yayılı spektrum
+### Mod 2 · CSS — LoRa tipi chirp yayılı spektrum (deneysel)
 
 Her sembol, bandı T = 2^SF / B sürede tarayan bir yukarı chirp'tir; bilgi, başlangıç frekansının
 döngüsel kaymasındadır (2^SF kayma → SF bit) [3]. Alıcı sembolü temel banda indirip çip hızında
@@ -81,7 +83,7 @@ gösterilmiştir.
 - **Senkron eşiği:** uzun ve geniş bantlı senkron chirp'inde gürültünün ilintisi ~1/√(T·B) olduğundan
   eşik buna göre düşürülür; yankı + gürültüde paketler kaçmaz.
 
-### Mod 3 · DQPSK-OFDM — zaman-frekans serpiştirmeli çok taşıyıcı
+### Mod 3 · DQPSK-OFDM — zaman-frekans serpiştirmeli çok taşıyıcı (deneysel)
 
 Bantta 100 Hz aralıklı onlarca alt taşıyıcı birden çalar; sembol 10 ms + 3,3 ms koruma aralığı.
 Her taşıyıcı bir önceki kullanımına göre faz farkıyla 2 bit (DQPSK) ya da 1 bit (DBPSK) taşır;
@@ -280,11 +282,15 @@ Sonik is a dependency-free acoustic modem that runs in the browser: one device t
 or a file into sound, another decodes it from the microphone. It offers three literature-based
 methods:
 
-- **Mod 1, MFSK** uses frequency-hopped tone sets with Reed–Solomon erasure decoding.
+- **Mod 1, MFSK** uses frequency-hopped tone sets with Reed–Solomon erasure decoding. It is the
+  default.
 - **Mod 2, CSS** is LoRa-style chirp spread spectrum with a K=7 convolutional code and soft-decision
   Viterbi decoding. It separates timing from Doppler using the chirp's wrap-point phase jump and
   tracks them with an alpha-beta tracker.
 - **Mod 3, DQPSK-OFDM** is DAB-style OFDM with time-frequency interleaving (block hopping).
+
+Mod 2 and Mod 3 are experimental. The UI offers them only after you tick "Deneysel yöntemleri aç"
+(enable experimental methods). The receiver always decodes all three.
 
 Each method is available in three bands (2–10 kHz, 11–17 kHz, near-ultrasonic) and several speed
 levels, 19 profiles in total. In the included channel simulator, CSS (normal level) decodes all packets

@@ -204,6 +204,10 @@ output {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.segmented.n1 {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .segmented.n2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -213,7 +217,7 @@ output {
 }
 
 @media (max-width: 420px) {
-  .segmented:not(.three):not(.n2):not(.n3) {
+  .segmented:not(.three):not(.n1):not(.n2):not(.n3) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -246,6 +250,25 @@ output {
   border-color: var(--accent);
   background: var(--accent-soft);
   box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.segmented.method button {
+  align-content: start;
+}
+
+.badge {
+  justify-self: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.profiles .badge {
+  margin-left: 6px;
 }
 
 .segmented button:disabled {
