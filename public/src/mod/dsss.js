@@ -577,7 +577,7 @@ export class DsssDemod {
       for (let l = 0; l < nLag; l++) {
         if (D[l] < zmin || D[l] < FINGER_REL * Dmain || (best >= 0 && D[l] <= D[best])) continue;
         let near = false;
-        for (const x of fingers) near ||= Math.abs(x - l) < 2;
+        for (const x of fingers) if (Math.abs(x - l) < 2) near = true;
         if (!near) best = l;
       }
       if (best < 0) break;
