@@ -1,7 +1,8 @@
 // Kodlama ve çözme işi ana iş parçacığını (arayüzü) yormasın diye burada yapılır.
 //
 // Ana → worker:
-//   { type: 'start', sampleRate }            canlı dinleme başlat
+//   { type: 'start', sampleRate, profiles }  canlı dinleme başlat (profiles: dinlenecek profil anahtarları)
+//   { type: 'profiles', profiles }           dinlenen profilleri değiştir (yarım paketler kaybolur)
 //   { type: 'samples', data }                canlı ses parçası (Float32Array)
 //   { type: 'stop' }
 //   { type: 'encode', id, payloads, profile, sampleRate, kind, encrypted, amplitude }
@@ -13,10 +14,17 @@
 //   { type: 'decoded', id, events, ms, seconds }
 
 import { Receiver } from './receiver.js';
-import { encodePackets } from './modem.js';
+import { PROFILES, encodePackets, getProfile } from './modem.js';
 import { simulateChannel } from './dsp/channel.js';
 
 let live = null;
+
+function startLive(sampleRate, keys) {
+  live = new Receiver(sampleRate, {
+    profiles: keys ? keys.map(getProfile) : PROFILES,
+    onEvent: (event) => self.postMessage({ type: 'event', event }),
+  });
+}
 
 function decodeBuffer(samples, sampleRate) {
   const events = [];
@@ -32,7 +40,10 @@ self.onmessage = (e) => {
   try {
     switch (m.type) {
       case 'start':
-        live = new Receiver(m.sampleRate, { onEvent: (event) => self.postMessage({ type: 'event', event }) });
+        startLive(m.sampleRate, m.profiles);
+        break;
+      case 'profiles':
+        if (live) startLive(live.fs, m.profiles);
         break;
       case 'samples':
         live?.push(m.data);

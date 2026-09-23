@@ -4,10 +4,13 @@ Tarayıcıda çalışan, bağımlılıksız bir **akustik modem**. Bir cihaz met
 sese çevirip çalar, diğeri mikrofonla dinleyip çözer. Kurulum, sunucu ya da hesap yok: ses de
 içerik de hiçbir yere gönderilmez, her şey tarayıcıda işlenir.
 
-Üç ayrı yöntem (mod) sunar; her biri literatürde yerleşik bir kipleme ailesinden gelir ve farklı
-bir koşul için en iyisidir: **MFSK** (frekans kaydırma), **CSS** (LoRa tipi chirp yayılı spektrum)
-ve **DQPSK-OFDM** (çok taşıyıcılı). Alıcı üçünü de aynı anda dinler, hangisinin geldiğini
-kendisi tanır.
+Yedi ayrı yöntem (mod) sunar; her biri literatürde yerleşik bir kiplemeden gelir. Varsayılan yöntem
+**MFSK**'dir (frekans atlamalı ton kümeleri). Diğer altısı deneyseldir ve üç kipleme ailesini
+evreli/evresiz çiftler hâlinde tamamlar: yayılı spektrumda **CSS** (LoRa tipi chirp) ve **DSSS**
+(doğrudan dizili, RAKE alıcı); frekans kaydırmada **JANUS** (NATO'nun frekans atlamalı ikili FSK'si)
+ve **FT8** (8-GFSK, LDPC); çok taşıyıcıda **DQPSK-OFDM** (diferansiyel) ve **OFDM-QAM** (pilotlu,
+koherent). Hepsi aynı senkron, çerçeve ve Reed-Solomon katmanını paylaşır; böylece aynı kanal
+simülatöründe yan yana karşılaştırılabilirler. Alıcı hangi yöntemin geldiğini kendisi tanır.
 
 **Canlı sürüm:** <https://sonik.perinet.org>
 
@@ -15,13 +18,14 @@ kendisi tanır.
 
 ## Özellikler
 
-- **3 yöntem, 19 profil:** her yöntemde 3 frekans bandı (Standart 2–10 kHz, Yüksek 11–17 kHz,
-  Ultrasonik 17–20,5 kHz) ve hız kademeleri; net 3 B/sn'den 375 B/sn'ye.
+- **7 yöntem, 35 profil:** 3 frekans bandı (Standart 2–10 kHz, Yüksek 11–17 kHz, Ultrasonik
+  17–20,5 kHz) ve hız kademeleri; net 2,8 B/sn'den 1,3 KB/sn'ye. Mod 1 varsayılan, Mod 2–7 deneysel.
 - **Metin, görsel ve dosya:** görsel seçilen boyuta küçültülüp WebP olarak yeniden kodlanır; her
   tür dosya gönderilebilir (yayın en çok 5 dakika: Turbo ile ~80 KB). Uzun metin kendiliğinden parçalanır.
-- **Sağlamlık:** Reed-Solomon (silintili), CRC-32; CSS'te ayrıca evrişimli kod ve yumuşak kararlı
-  Viterbi; paketler arası eşlik parçaları ve tekrar kipi (kaçan parçalar sonraki turda tamamlanır).
-- **Otomatik uyum:** profil paket başındaki chirp ve başlıktan tanınır; 44,1/48 kHz farkı, saat
+- **Sağlamlık:** Reed-Solomon (silintili), CRC-32; deneysel yöntemlerin çoğunda ayrıca bir iç kod
+  (K = 7 ya da K = 9 evrişimli kod ve yumuşak kararlı Viterbi; FT8'de LDPC ve inanç yayılımı);
+  paketler arası eşlik parçaları ve tekrar kipi (kaçan parçalar sonraki turda tamamlanır).
+- **Otomatik uyum:** profil paket başındaki chirp'ten ve başlıktan tanınır; 44,1/48 kHz farkı, saat
   kayması, cihaz hareketi (Doppler) ve oda yankısı hesaba katılır.
 - **İsteğe bağlı şifreleme:** PBKDF2-SHA256 → AES-256-GCM.
 - **Araçlar:** canlı spektrogram, WAV indirme, ses kaydından çözme, tarayıcı içinde oda simülasyonu,
@@ -35,10 +39,15 @@ kendisi tanır.
    yapıştırma da olur; telefonda doğrudan fotoğraf çekilebilir).
 3. **Yöntem**, **Frekans bandı** ve **Hız** seç, **Sese çevir ve çal**'a bas.
 
-Hangi yöntem? Varsayılan **Mod 1 · MFSK**. **Mod 2 · CSS** ve **Mod 3 · OFDM** deneyseldir;
-Yöntem'in altındaki **Deneysel yöntemleri aç** kutusuyla seçilebilir hale gelir (alıcı üç yöntemi
-de her zaman çözer). Deneysellerden CSS uzak, gürültülü ya da çok yankılı ortam için; OFDM cihazlar
-yakınken, görsel ve dosya için.
+Hangi yöntem? Varsayılan **Mod 1 · MFSK**: oda içinde birkaç metrede, elde tutarken ve yüksek seste
+en az sürprizli olanı. Mod 2–7 deneyseldir; Yöntem'in altındaki **Deneysel yöntemleri aç** kutusuyla
+seçilebilir hâle gelir. Kutu açıkken canlı dinleme de deneysel yöntemleri çözer; kapalıyken yalnız
+Mod 1'i dinler (telefonda işlemci payı kalsın diye). Deneysel yöntem kullanılacaksa kutu **alan
+cihazda da** açık olmalı; dosyadan çözme ve simülasyon ise her zaman tüm yöntemleri dener.
+
+Deneyseller arasında, simülatöre göre: gürültü sinyalden güçlüyse ve uzak mesafede **CSS**, **DSSS**
+ya da **FT8** (Sağlam); çok yankılı salonda ve cihaz hareket ederken **JANUS** ve **DSSS**; cihazlar
+yakınken, görsel ve dosya için **OFDM-QAM** (en hızlısı) ya da **DQPSK-OFDM**.
 
 İpuçları:
 
@@ -94,17 +103,142 @@ farkı ve hareket, fazda frekansla orantılı bir eğim olarak ölçülür (veri
 silinip sıfırdan geçen doğruya en küçük kareler) ve her sembolde düzeltilir. MFSK'nin 5–15 katı hız;
 yankı arttıkça hata artar, yakın mesafe içindir.
 
+### Mod 4 · DSSS — doğrudan dizili yayılı spektrum, DBPSK ve RAKE alıcı (deneysel)
+
+Her kodlu bit bir semboldür: N çiplik sözde rastgele bir kesim bitin işaretiyle çarpılır ve taşıyıcıda
+BPSK olarak çalınır; çip darbesi kök yükseltilmiş kosinüstür (β = 0,5, standart bantta 4000 çip/sn).
+Hızlı profiller IEEE 802.11'deki gibi her bitte aynı 11 çipli Barker dizisini kullanır [13]; Normal ve
+Sağlam'da bit başına 31/63 çip, PRBS-15 m-dizisinin ardışık kesimleridir (uzun kod). Bitler diferansiyel
+kodlanır (DBPSK): taşıyıcı fazı ve odanın her yoldaki fazı farkta düşer [14]. Alıcı biti kesimin kaydırılmış
+kopyalarıyla ilişkilendirip bir gecikme profili çıkarır; ayrı gelen yankı yolları ayrı tepeler verir.
+RAKE alıcı [15] en güçlü en çok dört yolu "kol" olarak seçer ve ölçümlerini toplar; işlem kazancı N
+gürültüyü ve geç yankıyı N kat bastırır.
+
+- **Kodlama ve LLR:** bitler K = 7 evrişimli kodla [6] korunur, başlık ve veri ayrı serpiştirilir. Kol
+  başına LLR, fazı bilinmeyen iki ardışık sembolün tam olabilirlik oranıdır (ln I0 farkı); düşük SNR'de
+  ağırlıklı diferansiyel birleştirmeye (Σ w·Re{y[n]·y*[n−1]}) indirgenir. Gürültü + girişim düzeyi gecikme
+  profilinden ölçülür; LLR'ler Viterbi [5] ve RS silintileri için gerçekçi ölçeklidir.
+- **Yankı:** geç yankı (RT60 0,4–1,2 s) önceki bitlerin verisini taşıyan bir öz girişimdir. m-dizisinin kısmi
+  ilintileri √N mertebesinde olduğundan kısa kodda bu girişim iki katına çıkar; uzun kod onu yarıya indirir
+  (çok uzak salonda DSSS Normal %10 → %100). Kollar, o anki kararla tutarlı "diferansiyel" profilden seçilir;
+  yalnız güç profili, yankının sabit girişim deseninden sahte kollar doğururdu.
+- **Zaman izleme:** başvuru bitleri ilk zamanlamayı verir; sonra ana kolda erken-geç ayırıcılı, ikinci
+  dereceden bir gecikme kilitli döngü (DLL) [16] izler. Saat farkı ve hareketin yaptığı bit başı faz dönmesi
+  karar yönlendirmeli kestirilir.
+- **802.11'den farklar:** akustik bant ve çip hızı; Sağlam ve Normal'de uzun kod; evrişimli kod ve
+  serpiştirme (802.11 DSSS'te kanal kodu yok); SYNC + SFD yerine chirp ve kısa başvuru dizisi; RRC darbe
+  ve hafif temel bant kırpması; 2 Mbit/sn DQPSK ve CCK yok.
+- **Simülatörde:** Sağlam ve Normal 18 koşulun hepsinde %100. DBPSK, CSS'in 2^SF'li kiplemesinden enerji
+  açısından daha az verimli (CSS Normal aynı dayanıklılıkta 1,45 kat hızlı); buna karşılık DSSS elde sallamaya
+  ve ultrasonik bantta harekete CSS'ten dayanıklı. Barker-11'li hızlı profiller yankılı salonda zayıftır.
+  Tepe/RMS oranı CSS'ten ~2 dB yüksektir; simülatör SNR'yi RMS'e göre ölçtüğünden bu bedel tablolarda görünmez.
+
+### Mod 5 · JANUS — frekans atlamalı ikili FSK (deneysel)
+
+NATO'nun su altı akustik haberleşme standardı JANUS [17, 18] çizgisinde: bant 13 alt banda bölünür, her alt
+bantta iki ton vardır (26 ton). Her kodlu bit bir çiptir; çipin hangi ton çiftinde çalınacağını frekans atlama
+dizisi, çiftin hangi tonunun çalınacağını bitin kendisi belirler. Bitler JANUS'un iç kodu olan K = 9, oran 1/2
+evrişimli kodla (üreteçler 753/561) korunur, serpiştirilir ve yumuşak kararlı Viterbi [5] ile çözülür; dışta
+Reed-Solomon [8] kalır. Paket, senkron chirp'inden sonra 32 çiplik sabit bir önsözle başlar. Alıcı ton
+enerjilerini evresiz karşılaştırır; evre, kanal kestirimi ve eşitleyici gerekmez. Bu yüzden yankıya, Doppler'e
+ve kırpmaya dayanıklıdır, ama en yavaş yöntemdir (net 2,8–5,7 bayt/sn).
+
+- **Havaya uyarlama:** atlama dizisi h(k) = 5k mod 13 her 13 çipte her çifti bir kez kullanır; bir çift ancak
+  12 çip sonra yeniden duyulur (yankı yaşı 120–240 ms; MFSK'nin ton kümeleriyle aynı fikir). Ardışık çipler
+  bandın ~%40'ı uzakta, çift içindeki iki ton bitişik. Çip süresi 10–20 ms (JANUS'ta 6,25 ms); ton aralığı
+  Hann penceresine göre 2,3–4 / çip süresi.
+- **Yankıyı hesaba katan LLR:** gürültü tabanı o an çalınmayan tonlardan, yankının sönüm profili boştaki
+  çiftlerden ölçülür; 13 çip önce hangi ton çalındıysa onda beklenen yankı girişime eklenir. Her dal için
+  Rayleigh sönümlü kare-yasa LLR kullanılır [14].
+- **Yankı kuyruğunu toplama:** çip susunca kendi yankısı aynı tonda sürer; bu, oda yanıtının başka bir
+  kesiminden gelen bağımsız bir kopyadır. Çipin çifti sonraki ~180 ms boyunca okunur, her gecikme ayrı bir
+  çeşitleme dalı olarak kare-yasa birleştirilir [14]. Simülatörde ham çip hata oranı çok uzak salonda (RT60
+  1,2 s, DRR −12 dB) %2,3'ten sıfıra, kilise gibi salonda (RT60 2 s) %12,7'den %0,1'e indi.
+- **Zamanlama:** çeyrek çip erken/geç pencerelerin enerji farkı. Yankının bu farka verdiği kalıcı eğilim ilk
+  96 çipte ölçülüp çıkarılır; sonra saat farkı ve hareket ikinci dereceden bir döngüyle izlenir.
+- **Standarttan sapmalar:** bant, çip süresi ve ton aralığı havaya göre seçildi. Atlama dizisi, serpiştirici
+  (asal adımlı) ve önsözün bitleri standardınkiler değil. Algılama bandın ortak chirp'iyle yapılır. Çerçeve
+  JANUS'un 64 bitlik temel paketi değil, Sonik'in başlığı ve RS + CRC-32'li verisidir. Bir JANUS modemiyle
+  uyumlu değildir.
+
+### Mod 6 · OFDM-QAM — pilotlu, koherent OFDM (deneysel)
+
+Mod 3 ile aynı ızgarayı kullanır (100 Hz aralıklı alt taşıyıcılar, 10 ms + 3,3 ms koruma aralığı), ama
+koherenttir: bilgi, taşıyıcının bir önceki kullanımına göre faz farkında değil, kendi genlik ve fazındadır
+(QPSK 2 bit, 16-QAM 4 bit, Gray eşleme). Yapı IEEE 802.11a OFDM fiziksel katmanını izler [19]. Paket başındaki
+iki eğitim turunun ortalaması her taşıyıcının kazancını ve fazını verir (komşu taşıyıcılarla ortalanır [21]);
+farkları gürültüyü, aralarındaki faz eğimi saat farkının hızını verir. Her sembolde 4 pilot taşıyıcı (802.11a'nın
+127 bitlik karıştırıcı dizisiyle kutuplanmış) ortak faz kaymasını izler. Seste taşıyıcı osilatörü yoktur; bu
+kayma frekansla orantılı bir faz eğimidir ve tek bir gecikmeyle açıklanır. Gecikme her sembolde pilotlardan ve
+karar verilen veri taşıyıcılarından ölçülüp Kalman süzgeciyle [23] izlenir, FFT penceresi de onunla kayar.
+Bitler 802.11a'nın K = 7 evrişimli koduyla korunur ve iki adımlı serpiştiriciden geçer; alıcı her bit için
+max-log LLR üretir [20] ve yumuşak kararlı Viterbi [5] ile çözer. Akustik OFDM için bkz. [11].
+
+- **Yankı:** koruma aralığını aşan oda yankısı gürültü gibi girişime dönüşür; bandın tamamını her sembolde
+  kullanan profillerde sinyal/girişim oranı DRR'ye yakındır. Turbo (16-QAM) ve Çok hızlı (QPSK) bu yüzden
+  yakın mesafe içindir. Hızlı, taşıyıcıları 3 bloğa bölüp her sembolde birini çalar (Mod 3'teki atlama;
+  koherent OFDM'de bant atlamanın örneği MB-OFDM [22]): bir taşıyıcı 40 ms sonra yeniden çalar, DRR 0 dB'lik
+  odada da çözülür.
+- **Kanal ve gürültü izleme:** kanal kestirimi her kararla güncellenir, taşıyıcı başına gürültü izlenir;
+  LLR'ler buna göre ölçeklenir. Telefon hoparlörünün zayıf bantları ve konuşmanın örttüğü taşıyıcılar düşük
+  güven alır.
+- **802.11a'dan farklar:** zaman ölçeği (µs yerine ms); kısa eğitim yerine chirp senkronu; frekans kayması
+  yerine zaman ölçeği kayması; blok atlama; turlar arası zaman serpiştirmesi (konuşma gibi patlama gürültüsüne
+  karşı); başlık en az 3 sembole yayılır; yalnız oran 1/2; dışta Reed-Solomon.
+- **Simülatörde:** Turbo net 1295 B/sn ile Mod 3 Turbo'nun 3,5 katı hızdadır, ama yalnız yan yana ve SNR ≥
+  10–12 dB'de çözer; 50 cm'de çözemez. Çok hızlı (648 B/sn) yakın mesafede Mod 3 Turbo kadar sağlamdır,
+  konuşma girişiminde daha iyidir. Hızlı (188 B/sn) her koşulda Mod 3 Çok hızlı (144 B/sn) kadar ya da daha
+  iyidir. Uzak ve çok yankılı ortamda hiçbir OFDM-QAM profili çözemez.
+
+### Mod 7 · FT8 — 8-GFSK, Costas senkronu ve LDPC(174, 91) (deneysel)
+
+FT8, amatör telsizde çok zayıf sinyaller için geliştirilmiş kipin [24] havadan sese uyarlanmışıdır. Sekiz tonlu,
+sürekli fazlı frekans kaydırma kullanır: sembol başına 3 bit (Gray kodlu), ton aralığı sembol süresinin tersi
+(h = 1; tonlar sembol boyunca diktir), frekans geçişleri Gauss süzgeçle yumuşatılır (GFSK, BT = 2). Her çerçeve
+79 semboldür: S7 D29 S7 D29 S7. S7, 7 × 7 Costas dizisidir ({3, 1, 4, 0, 6, 5, 2}); zaman ve frekans
+kaymalarında tek bir keskin ilinti tepesi verir [26]. Alıcı her blokta zamanı ve Doppler'i buradan ölçer,
+alfa-beta izleyiciyle [9] izler. 58 veri sembolü tam bir LDPC(174, 91) kod sözcüğüdür [27]; üreteç ve denetim
+tabloları FT8'in kendi kodudur (ft8_lib [25], MIT lisansı). Alıcı inanç yayılımıyla (sum-product [28]) çözer.
+
+Özgün FT8'de sembol 160 ms, ton aralığı 6,25 Hz'dir (77 bit 12,64 saniyede). Sonik'te sembol süresi ve ton
+aralığı birlikte ölçeklenir (80 ms / 12,5 Hz ve 40 ms / 25 Hz; h = 1 korunur). Hız için 2–4 FT8 sinyali farklı
+frekans kaymalarında aynı anda çalar (FT8 kullanıcılarının bandı paylaşması gibi). FT8'in 14 bitlik CRC'si
+yerine paketin RS + CRC-32 çerçevesi kullanılır. Bit akışı 91 bitlik bloklara bölünür; son bloğun sıfır
+tamamlama bitlerini alıcı bildiği için bu blok kısaltılmış kod gibi güçlenir (başlık: 56 bilgi + 35 bilinen bit).
+
+- **Alıcı:** her sembolde 8 tonun enerjisi dikdörtgen pencereli DFT ile ölçülür. Bit LLR'leri eş fazsız FSK'nin
+  olabilirlik oranından (Rice/Rayleigh) gelir; düzeyler Costas sembollerinden ve güvenli kararlardan
+  kestirilir, böylece LLR'ler inanç yayılımının istediği gerçek ölçeğe yakındır.
+- **Yankı (FT8'de olmayan, alıcıya eklenen önlem):** ton kümesi değiştirmeyen 8-FSK'de önceki sembolün yankısı
+  şimdiki pencerede hep 8 tondan birine düşer. Simülatörde odada (RT60 0,5 s, DRR 0 dB) sembol hatalarının
+  %82'si "önceki sembolün tonu"ydu. Dalga formuna dokunmadan alıcıya iki şey eklendi: ton başına kanal modeli
+  (her tonun doğrudan, yankı ve tekrar düzeyleri ayrı öğrenilir) ve her 29 sembollük veri bloğunda durumu
+  "önceki ton" olan 8 durumlu kafeste ileri-geri çözüm (BCJR [29]). Bloğun iki ucundaki Costas tonları bilinen
+  durumlardır. Yankı böylece gürültü değil, önceki sembol için ek kanıt olur.
+- **Nerede iyi, nerede değil:** en düşük SNR'de Sağlam (3,1 B/sn) CSS Sağlam kadar dayanıklıdır (−15 dB'de
+  %100); el titremesi ve sallamada CSS'ten iyidir. Aynı hızda gürültüde CSS'in gerisindedir (8 ton, CSS'te 256
+  kayma). Çok yankılı salonda (DRR ≤ −8 dB) ton kümesi atlayan MFSK'nin gerisinde kalır. Çok alt kanallı
+  profillerde zarf sabit değildir: hoparlör aynı tepe genliğiyle sürüldüğünde ortalama güç ~1/N'ye düşer;
+  simülatördeki SNR ortalama güce göre olduğundan bu kayıp tablolarda görünmez.
+
 ### Ortak katmanlar
 
 ```
 │ chirp │ boşluk │ başlık (uzunluk, tür, profil) │ veri + CRC-32 │ RS parite │
-  senkron          ← MFSK tonları · CSS chirp'leri · OFDM alt taşıyıcıları →
+  senkron          ← yöntemin sembolleri: ton, chirp, çip ya da alt taşıyıcı →
 ```
 
 - **Senkron:** her paket bir chirp ile başlar; alıcı gelen sesi FFT tabanlı normalize korelasyonla
   şablonlara benzetip paket başını örnek düzeyinde bulur. Aynı bantta benzer profiller bir chirp'i
   paylaşır; hangi profil olduğu başlıktaki profil numarasından anlaşılır.
 - **Başlık (sürüm 3):** 12 bit uzunluk, 8 bit profil no, şifreli ve tür bayrakları, 4 bayt RS.
+- **İç kod:** MFSK ve DQPSK-OFDM sert kararlıdır; güveni düşük baytlar RS'ye silinti olarak gider. Diğer
+  yöntemlerde başlık ve veri bitleri ayrıca bir iç kodla korunur: CSS, DSSS ve OFDM-QAM'de K = 7 (171/133),
+  JANUS'ta K = 9 (753/561) evrişimli kod ve yumuşak kararlı Viterbi; FT8'de LDPC(174, 91) ve inanç yayılımı.
+  İç kod bayt başına bir güven de verir; RS silintileri ondan seçilir (birleştirilmiş kod [7]).
+- **Ortak senkron:** yeni yöntemler bantlarındaki mevcut chirp'i paylaşır (DSSS, JANUS ve FT8 CSS'inkini,
+  OFDM-QAM OFDM'ninkini). Karşılaştırmada her yöntem aynı senkronla başlar; dinlerken işlemci yükü de
+  yöntem sayısıyla artmaz.
 - **Görsel ve dosya:** içerik K parçaya bölünür, sütun sütun Reed-Solomon ile M eşlik parçası
   üretilir (paket kayıplarına karşı silinti kodu [12]): alıcı herhangi K farklı parçayı duyunca
   içeriği kurar. Parça boyu yayın süresini en aza indirecek şekilde seçilir.
@@ -115,8 +249,9 @@ yankı arttıkça hata artar, yakın mesafe içindir.
 
 ## Profiller
 
-Net hız: kiplemenin ham hızı × evrişimli kod oranı × RS oranı (bayt/sn); paket başı yük (senkron,
-başlık) hariç. Yöntemleri karşılaştırmak için ham hızdan daha dürüsttür.
+Net hız: kiplemenin ham hızı × iç kod oranı × RS oranı (bayt/sn); paket başı yük (senkron, başlık,
+başvuru sembolleri) hariç, çerçeve içindeki pilot ve senkron sembolleri dahil. Yöntemleri
+karşılaştırmak için ham hızdan daha dürüsttür.
 
 | Yöntem | Profil | Net hız | Bant | Yapı | Ne zaman |
 |---|---|---:|---|---|---|
@@ -139,6 +274,22 @@ başlık) hariç. Yöntemleri karşılaştırmak için ham hızdan daha dürüst
 | 3 · OFDM | Yüksek · Çok hızlı | 57,7 | 11,3–17,2 kHz | DBPSK, 6 blok | oda içinde ≤ 1 m |
 | 3 · OFDM | Yüksek · Turbo | 260 | 11,3–17,2 kHz | DQPSK, 3 blok | cihazlar yakın (≤ 50 cm) |
 | 3 · OFDM | Ultrasonik · Turbo | 202 | 17,4–20,4 kHz | DQPSK, 2 blok | yan yana (≤ 30 cm) |
+| 4 · DSSS | DSSS · Sağlam | 3,6 | 1,7–8,3 kHz | 63 çip, uzun kod | çok uzak, çok yankılı; gürültü sinyalden güçlü |
+| 4 · DSSS | DSSS · Normal | 7,3 | 1,7–8,3 kHz | 31 çip, uzun kod | gürültülü ortam, uzak oda; hareket |
+| 4 · DSSS | DSSS · Hızlı | 20,7 | 1,7–8,3 kHz | Barker-11 | oda içi, birkaç metre |
+| 4 · DSSS | DSSS · Ultrasonik · Hızlı | 9,6 | 17,4–20,6 kHz | Barker-11 | neredeyse duyulmaz; oda içi, elde |
+| 5 · JANUS | JANUS · Sağlam | 2,8 | 1,7–8,3 kHz | 20 ms çip | çok yankılı salon, uzak, düşük SNR; elde |
+| 5 · JANUS | JANUS · Normal | 5,7 | 1,7–8,3 kHz | 10 ms çip | yankılı salon, uzak; hareket |
+| 5 · JANUS | JANUS · Yüksek | 5,7 | 11,2–17,3 kHz | 10 ms çip | yankılı salon, uzak; daha az duyulur |
+| 5 · JANUS | JANUS · Ultrasonik | 2,8 | 17,4–20,6 kHz | 20 ms çip | neredeyse duyulmaz |
+| 6 · OFDM-QAM | OFDM-QAM · Turbo | 1295 | 1,8–10,2 kHz | 16-QAM, tek blok | yan yana (≤ 20 cm), sessiz |
+| 6 · OFDM-QAM | OFDM-QAM · Çok hızlı | 648 | 1,8–10,2 kHz | QPSK, tek blok | ≤ 50 cm; görsel ve dosya |
+| 6 · OFDM-QAM | OFDM-QAM · Hızlı | 188 | 1,8–10,2 kHz | QPSK, 3 blok | oda içinde ≤ 1 m |
+| 6 · OFDM-QAM | OFDM-QAM · Yüksek · Çok hızlı | 435 | 11,3–17,2 kHz | QPSK, tek blok | ≤ 50 cm; daha az duyulur |
+| 7 · FT8 | FT8 · Sağlam | 3,1 | 1,7–8,3 kHz | 80 ms, 2 alt kanal | çok düşük SNR, uzak |
+| 7 · FT8 | FT8 · Normal | 6,3 | 1,7–8,3 kHz | 80 ms, 4 alt kanal | düşük SNR, gürültülü ortam |
+| 7 · FT8 | FT8 · Hızlı | 9,4 | 1,7–8,3 kHz | 40 ms, 3 alt kanal | oda içi, birkaç metre |
+| 7 · FT8 | FT8 · Yüksek | 9,4 | 11,2–17,3 kHz | 40 ms, 3 alt kanal | düşük SNR, oda içi; daha az duyulur |
 
 ## Karşılaştırma
 
@@ -214,11 +365,12 @@ public/                  yalnız bu klasör yayınlanır
   src/modem.js           verici: bayt → paket → dalga formu (tek ya da çok paket)
   src/receiver.js        alıcı: senkron adayları → paket çözücüler (sert ve yumuşak kararlı)
   src/receiver-worker.js kodlama ve çözme işi (Web Worker)
-  src/mod/               mfsk.js, css.js, ofdm.js (verici + alıcı)
+  src/mod/               mfsk, css, ofdm, dsss, janus, qam, ft8 (verici + alıcı); registry.js
   src/transfer.js        görsel/dosya: parçalama, paketler arası RS, birleştirme
   src/image.js           görsel küçültme; alınan görselin imzası ve boyutu
   src/crypto.js          PBKDF2 + AES-GCM
-  src/codec/             crc32, reedsolomon, conv (evrişimli kod, Viterbi, serpiştirme), framing
+  src/codec/             crc32, reedsolomon, conv (K = 7/9 evrişimli kod, Viterbi, serpiştirme),
+                         ldpc (FT8'in LDPC(174, 91) kodu, inanç yayılımı), framing (başlık, RS, iç kod)
   src/dsp/               fft, filters, chirp, sync, store, channel
   src/audio/             capture-worklet (AudioWorklet), wav
   src/ui/spectrogram.js
@@ -244,7 +396,12 @@ Başka bir kurulumda `DOMAIN`, `REFERENCE` ve betikteki `UPSTREAM` değiştirilm
 
 ## Sınırlar
 
-- OFDM profillerinde yankı arttıkça hata artar; Turbo yakın mesafe, Çok hızlı oda içi içindir.
+- Mod 2–7 deneyseldir: simülatörde ölçüldüler, gerçek cihazlarda henüz sınanmadılar. Canlı dinleme
+  onları yalnız "Deneysel yöntemleri aç" kutusu açıkken çözer.
+- OFDM ve OFDM-QAM profillerinde yankı arttıkça hata artar; Turbo'lar yakın mesafe içindir.
+- JANUS ve FT8 yavaştır: kısa bir mesaj bile 4–16 saniye sürer. FT8'in ve MFSK'nin çok kanallı
+  profillerinde zarf sabit değildir; aynı tepe genliğinde ortalama güç düşer (simülatörün SNR'si bunu
+  göstermez). DSSS'in tepe/RMS oranı CSS'ten ~2 dB yüksektir.
 - CSS'in uzun sembollü profillerinde (Sağlam, SF 10; ultrasonikte 91 ms) cihazı sallamak zamanlamayı
   sembolden sembole izlenemeyecek kadar değiştirir; bu profillerde cihazlar sabit durmalı.
 - Yüksek ve ultrasonik bantların başarısı hoparlör ve mikrofona bağlıdır; bazı telefonlar 17 kHz
@@ -252,7 +409,9 @@ Başka bir kurulumda `DOMAIN`, `REFERENCE` ve betikteki `UPSTREAM` değiştirilm
 - Tarayıcı ya da işletim sistemi mikrofon sesini işlemeyi (yankı engelleme, gürültü bastırma)
   kapatmazsa tonlar bozulabilir; sayfa bunu algılayınca uyarır.
 - Paket biçiminin 3. sürümü önceki sürümlerle uyumlu değildir; iki cihaz da aynı sürümü açmalı.
-- Sonuçlar simülatör ölçümleridir; gerçek cihazlarla oda koşullarında ölçülmedi.
+- Sonuçlar simülatör ölçümleridir; gerçek cihazlarla oda koşullarında ölçülmedi. Simülatörün oda
+  modeli ayrık erken yansımaları zayıf üretir (RAKE'in faydası orada az görünür); bazı yöntemlerin
+  alıcı ayarları benzer oda tiplerinde yapıldı, zorlu koşullardaki sonuçlar onları biraz iyi gösterebilir.
 
 ## Kaynaklar
 
@@ -275,12 +434,45 @@ Başka bir kurulumda `DOMAIN`, `REFERENCE` ve betikteki `UPSTREAM` değiştirilm
     acoustic NFC," *ACM SIGCOMM*, 2013.
 12. L. Rizzo, "Effective erasure codes for reliable computer communication protocols," *ACM SIGCOMM
     Computer Communication Review*, 27(2):24–36, 1997.
+13. IEEE Std 802.11-1997, *Wireless LAN Medium Access Control (MAC) and Physical Layer (PHY)
+    Specifications*, madde 15: 2,4 GHz DSSS PHY (11 çipli Barker dizisi, 1 Mbit/sn DBPSK).
+14. J. G. Proakis, M. Salehi, *Digital Communications*, 5. baskı, McGraw-Hill, 2008.
+15. R. Price, P. E. Green Jr., "A communication technique for multipath channels," *Proc. IRE*,
+    46(3):555–570, 1958.
+16. J. J. Spilker Jr., "Delay-lock tracking of binary signals," *IEEE Trans. Space Electronics and
+    Telemetry*, SET-9:1–8, 1963.
+17. J. Potter, J. Alves, D. Green, G. Zappa, I. Nissen, K. McCoy, "The JANUS underwater communications
+    standard," *2014 Underwater Communications and Networking (UComms)*, IEEE, 2014.
+18. NATO STANAG 4748 / ANEP-87, *JANUS: Digital underwater signalling standard for network node
+    discovery and interoperability*, NATO Standardization Office.
+19. IEEE Std 802.11a-1999, *Part 11: Wireless LAN Medium Access Control (MAC) and Physical Layer (PHY)
+    specifications: High-speed Physical Layer in the 5 GHz Band*.
+20. F. Tosato, P. Bisaglia, "Simplified soft-output demapper for binary interleaved COFDM with
+    application to HIPERLAN/2," *IEEE ICC*, 2:664–668, 2002.
+21. J.-J. van de Beek, O. Edfors, M. Sandell, S. K. Wilson, P. O. Börjesson, "On channel estimation in
+    OFDM systems," *IEEE VTC*, 2:815–819, 1995.
+22. A. Batra, J. Balakrishnan, G. R. Aiello, J. R. Foerster, A. Dabak, "Design of a multiband OFDM
+    system for realistic UWB channel environments," *IEEE Trans. Microwave Theory and Techniques*,
+    52(9):2123–2138, 2004.
+23. R. E. Kalman, "A new approach to linear filtering and prediction problems," *Trans. ASME, J. Basic
+    Engineering*, 82(1):35–45, 1960.
+24. S. Franke, B. Somerville, J. Taylor, "The FT4 and FT8 Communication Protocols," *QEX*,
+    Temmuz/Ağustos 2020, s. 7–17.
+25. K. Goba, *ft8_lib*, <https://github.com/kgoba/ft8_lib> (MIT lisansı; LDPC tabloları buradan).
+26. J. P. Costas, "A study of a class of detection waveforms having nearly ideal range–Doppler ambiguity
+    properties," *Proc. IEEE*, 72(8):996–1009, 1984.
+27. R. G. Gallager, "Low-density parity-check codes," *IRE Trans. Information Theory*, 8(1):21–28, 1962.
+28. S. J. Johnson, *Iterative Error Correction: Turbo, Low-Density Parity-Check and Repeat–Accumulate
+    Codes*, Cambridge University Press, 2010.
+29. L. R. Bahl, J. Cocke, F. Jelinek, J. Raviv, "Optimal decoding of linear codes for minimizing symbol
+    error rate," *IEEE Trans. Information Theory*, 20(2):284–287, 1974.
 
 ## In English
 
 Sonik is a dependency-free acoustic modem that runs in the browser: one device turns text, an image
-or a file into sound, another decodes it from the microphone. It offers three literature-based
-methods:
+or a file into sound, another decodes it from the microphone. It offers seven literature-based
+methods that share one sync, framing and Reed–Solomon layer, so they can be compared side by side in
+the same channel simulator:
 
 - **Mod 1, MFSK** uses frequency-hopped tone sets with Reed–Solomon erasure decoding. It is the
   default.
@@ -288,12 +480,28 @@ methods:
   Viterbi decoding. It separates timing from Doppler using the chirp's wrap-point phase jump and
   tracks them with an alpha-beta tracker.
 - **Mod 3, DQPSK-OFDM** is DAB-style OFDM with time-frequency interleaving (block hopping).
+- **Mod 4, DSSS** spreads each coded bit with the 802.11 11-chip Barker code or with 31/63-chip
+  segments of a PRBS-15 long code (DBPSK, RRC chips). A RAKE receiver combines up to four resolved
+  echo paths with exact noncoherent LLRs, and an early–late delay-lock loop tracks clock offset and motion.
+- **Mod 5, JANUS** is frequency-hopped binary FSK after the NATO JANUS underwater standard (STANAG
+  4748): 13 tone pairs, one coded bit per chip, JANUS's K=9 convolutional code and a 32-chip
+  preamble. Its non-coherent receiver predicts the reverberation each tone left from its previous
+  use, and square-law combines the chip's own reverberant tail as extra diversity branches.
+- **Mod 6, OFDM-QAM** is coherent, pilot-aided OFDM in the line of IEEE 802.11a: training symbols,
+  four comb pilots, QPSK/16-QAM, the K=7 code with the 802.11a interleaver, and max-log soft
+  demapping. Audio has no carrier oscillator, so the common phase error is a delay-proportional
+  slope, tracked by a Kalman filter.
+- **Mod 7, FT8** adapts the FT8 weak-signal protocol: Gray-coded 8-GFSK (BT = 2, h = 1) in 79-symbol
+  frames with three 7×7 Costas arrays, and FT8's own LDPC(174, 91) code (tables from ft8_lib) with
+  belief-propagation decoding. Symbols are scaled to 40–80 ms, 2–4 FT8 signals run side by side, and
+  the receiver adds a per-tone echo model and a BCJR pass over each data block.
 
-Mod 2 and Mod 3 are experimental. The UI offers them only after you tick "Deneysel yöntemleri aç"
-(enable experimental methods). The receiver always decodes all three.
+Mod 1 is the default; Mod 2–7 are experimental. The UI offers them, and live listening decodes them,
+only after you tick "Deneysel yöntemleri aç" (enable experimental methods). File decoding and the
+simulator always try all methods.
 
-Each method is available in three bands (2–10 kHz, 11–17 kHz, near-ultrasonic) and several speed
-levels, 19 profiles in total. In the included channel simulator, CSS (normal level) decodes all packets
+The methods come in three bands (2–10 kHz, 11–17 kHz, near-ultrasonic) and several speed levels,
+35 profiles in total, from 2.8 B/s to 1.3 kB/s net. In the included channel simulator, CSS (normal level) decodes all packets
 at −15 dB in-band SNR and in a far reverberant room (RT60 1.2 s, DRR −12 dB) where MFSK at a similar
 rate fails. MFSK is the most tolerant of hand motion and clipping, and OFDM reaches 375 B/s net at
 close range.

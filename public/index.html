@@ -90,7 +90,7 @@
           <span class="hint" id="method-detail"></span>
           <label class="check">
             <input id="experimental" type="checkbox" />
-            <span>Deneysel yöntemleri aç <small>(Mod 2 · CSS, Mod 3 · OFDM; sonuç ortama ve cihaza göre değişebilir)</small></span>
+            <span>Deneysel yöntemleri aç <small>(Mod 2–7: CSS, OFDM, DSSS, JANUS, OFDM-QAM, FT8. Sonuç ortama ve cihaza göre değişebilir; alan cihazda da açık olmalı.)</small></span>
           </label>
         </div>
         <div class="field">
@@ -201,11 +201,12 @@
           </p>
           <pre class="packet" aria-label="Paket yapısı">
 │ chirp │ boşluk │ başlık (uzunluk, tür, sürüm) │ veri + CRC-32 │ RS parite │
-  senkron          ← MFSK tonları · CSS chirp'leri · OFDM alt taşıyıcıları →</pre>
+  senkron          ← yöntemin sembolleri: ton, chirp, çip ya da alt taşıyıcı →</pre>
           <ul>
             <li>
               <b>Senkron:</b> paket bir <i>chirp</i> (frekans süpürmesi) ile başlar. Alıcı gelen sesi bu şablonla
-              ilişkilendirip paketin başladığı anı milisaniyenin altında bulur; chirp'in biçiminden profili de tanır.
+              ilişkilendirip paketin başladığı anı milisaniyenin altında bulur. Aynı bantta benzer yöntemler bir chirp'i
+              paylaşır; hangi profil olduğu başlıktaki profil numarasından anlaşılır.
             </li>
             <li>
               <b>Mod 1 · MFSK (frekans atlamalı ton kümeleri, varsayılan):</b> her 4 bit 16 frekanstan biri olarak çalınır;
@@ -228,6 +229,38 @@
               kullanılır. MFSK'nin 5–15 katı hız; yakın mesafe için. <i>DAB (ETSI EN 300 401) çizgisi.</i>
             </li>
             <li>
+              <b>Mod 4 · DSSS (doğrudan dizili yayılı spektrum, deneysel):</b> her kodlu bit 31/63 çiplik sözde rastgele
+              bir kesimle ya da 802.11'deki 11 çipli Barker dizisiyle yayılır, diferansiyel BPSK ile çalınır. Alıcı biti
+              dizinin kaydırılmış kopyalarıyla ilişkilendirip yankı yollarını ayrı ayrı görür; RAKE alıcı en güçlü yolları
+              toplar. Bitler K = 7 evrişimli kodla korunur; saat farkı ve hareket, gecikme kilitli döngüyle izlenir.
+              Gürültülü ve uzak ortam, elde tutma ve ultrasonik bant için.
+              <i>IEEE 802.11 (1997) DSSS; Price ve Green 1958 (RAKE); Proakis.</i>
+            </li>
+            <li>
+              <b>Mod 5 · JANUS (frekans atlamalı ikili FSK, deneysel):</b> bant 13 ton çiftine bölünür; her kodlu bit,
+              atlama dizisinin seçtiği çiftte iki tondan biri olarak çalınır ve bir çift ancak 13 çipte bir yeniden
+              duyulur. Bitler K = 9 evrişimli kodla korunur; alıcı ton enerjilerinden, önceki kullanımın yankısını hesaba
+              katan LLR'ler üretir ve çipin kendi yankı kuyruğunu da toplar (yumuşak kararlı Viterbi). Çok yankılı salon,
+              uzak mesafe ve elde tutma için; yavaş.
+              <i>NATO STANAG 4748 (JANUS); Potter vd. 2014; Proakis (kare-yasa birleştirme).</i>
+            </li>
+            <li>
+              <b>Mod 6 · OFDM-QAM (pilotlu, koherent OFDM, deneysel):</b> Mod 3'ün taşıyıcı ızgarasında, ama bilgi her
+              taşıyıcının kendi genlik ve fazında (QPSK, 16-QAM). Paket başındaki eğitim sembolleri kanalı ölçer; her
+              sembolde 4 pilot ve verilen kararlar, saat farkının ve hareketin yarattığı faz eğimini izler. Bitler K = 7
+              evrişimli kodla korunur, alıcı yumuşak kararlı Viterbi kullanır. Cihazlar yakınken en hızlısı (Turbo'da net
+              ~1,3 KB/sn); yankılı oda için taşıyıcıları 3 blokta atlatan profil.
+              <i>IEEE 802.11a çizgisi; Tosato ve Bisaglia 2002; van de Beek vd. 1995.</i>
+            </li>
+            <li>
+              <b>Mod 7 · FT8 (8-GFSK, Costas senkronu, LDPC; deneysel):</b> amatör telsizin zayıf sinyal kipi FT8'in havaya
+              uyarlanmışı: sekiz tonlu, sürekli fazlı GFSK, sembol başına 3 bit. 79 sembollük çerçevedeki üç Costas dizisi
+              zamanı ve Doppler'i verir; 58 veri sembolü bir LDPC(174, 91) kod sözcüğüdür, inanç yayılımıyla çözülür. Hız
+              için 2–4 FT8 sinyali yan yana çalar. Alıcı, önceki sembolün yankısını ton başına öğrenip kafeste (BCJR)
+              hesaba katar. Düşük SNR için; çok yankılı salonda zorlanır.
+              <i>Franke, Somerville ve Taylor 2020 (FT8); Goba, ft8_lib; Costas 1984; Gallager 1962; Bahl vd. 1974.</i>
+            </li>
+            <li>
               <b>Görsel ve dosya:</b> görsel önce seçilen boyuta küçültülüp WebP/JPEG olarak yeniden kodlanır (konum
               gibi bilgiler gönderilmez). İçerik parçalara bölünür, parçalara ek olarak Reed-Solomon eşlik parçaları
               üretilir: alıcı herhangi yeterli sayıda parçayı duyunca dosyayı kurar. Kaçan parçalar varsa gönderen
@@ -235,8 +268,9 @@
             </li>
             <li>
               <b>Hata düzeltme:</b> çözücü her sembolün ne kadar net olduğunu ölçer. MFSK ve OFDM'de şüpheli baytlar
-              Reed-Solomon'a "silinti" olarak verilir; böylece iki kat fazla hata düzeltilir. CSS'te bitler önce
-              evrişimli kodla (yumuşak kararlı Viterbi), sonra Reed-Solomon ile korunur. CRC tutmayan veri asla
+              Reed-Solomon'a "silinti" olarak verilir; böylece iki kat fazla hata düzeltilir. Diğer yöntemlerde bitler
+              önce bir iç kodla korunur (CSS, DSSS ve OFDM-QAM'de K = 7, JANUS'ta K = 9 evrişimli kod, yumuşak kararlı
+              Viterbi; FT8'de LDPC ve inanç yayılımı), dışta yine Reed-Solomon vardır. CRC tutmayan veri asla
               gösterilmez.
             </li>
             <li>

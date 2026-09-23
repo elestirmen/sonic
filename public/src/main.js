@@ -208,11 +208,19 @@ function renderMethods() {
   );
 }
 
-/** Deneysel yöntemler (Mod 2, 3) kapalıyken seçili profil Mod 1'in en yakın profiline döner. */
+/**
+ * Canlı dinlemede denenecek profiller. Deneysel yöntemler kapalıyken yalnız Mod 1: alıcı her profil için
+ * çözücü açar, tüm yöntemler birden telefonda işlemcinin gerçek zamana yetişme payını yarıdan fazla azaltır.
+ * Dosyadan çözme ve simülasyon her zaman tüm profilleri dener.
+ */
+const liveProfiles = () => PROFILES.filter((p) => state.experimental || !modeOf(p).experimental).map((p) => p.key);
+
+/** Deneysel yöntemler (Mod 2–7) kapalıyken seçili profil Mod 1'in en yakın profiline döner. */
 function setExperimental(on, persist = true) {
   state.experimental = on;
   ui.experimental.checked = on;
   renderMethods();
+  if (state.listening) state.worker?.postMessage({ type: 'profiles', profiles: liveProfiles() });
   const cur = getProfile(state.profile);
   const p = !on && modeOf(cur).experimental ? nearest('mfsk', cur.band, cur.speed) : cur;
   selectProfile(p.key, persist);
@@ -705,7 +713,7 @@ async function startListening() {
     node.connect(state.sink);
     source.connect(state.analyser);
     const w = worker();
-    w.postMessage({ type: 'start', sampleRate: ctx.sampleRate });
+    w.postMessage({ type: 'start', sampleRate: ctx.sampleRate, profiles: liveProfiles() });
     node.port.onmessage = (e) => w.postMessage({ type: 'samples', data: e.data }, [e.data.buffer]);
     state.listening = { stream, source, node };
     setAudioSession('play-and-record');

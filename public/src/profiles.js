@@ -29,8 +29,9 @@
 // bantlarındaki CSS chirp'ini, OFDM-QAM ise OFDM chirp'ini kullanır. Böylece dinlerken
 // işlemci yükü artmaz ve karşılaştırmada her yöntem aynı senkronla başlar.
 //
-// Varsayılan yöntem MFSK'dir. Diğerleri deneyseldir (experimental): arayüz onları
-// ancak kullanıcı açınca sunar. Alıcı her zaman tüm yöntemleri çözer.
+// Varsayılan yöntem MFSK'dir. Diğerleri deneyseldir (experimental): arayüz onları ancak
+// kullanıcı açınca sunar; canlı dinleme de onları ancak o zaman dener (telefonda işlemci
+// payı). Dosyadan çözme ve simülasyon her zaman tüm yöntemleri dener.
 
 import { HEADER_NIBBLES, innerCode } from './codec/framing.js';
 import { cssInfo } from './mod/css.js';
@@ -79,7 +80,7 @@ export const MODES = [
     name: 'DSSS',
     experimental: true,
     title: 'doğrudan dizili yayılı spektrum',
-    detail: 'her bit bir sözde rastgele diziyle yayılır, diferansiyel BPSK; RAKE alıcı yankı yollarını toplar (IEEE 802.11 DSSS; Price ve Green 1958)',
+    detail: 'her bit Barker-11 ya da uzun PN koduyla yayılır, diferansiyel BPSK; RAKE alıcı yankı yollarını toplar, DLL zamanı izler (IEEE 802.11 DSSS; Price ve Green 1958)',
   },
   {
     key: 'janus',
@@ -87,7 +88,7 @@ export const MODES = [
     name: 'JANUS',
     experimental: true,
     title: 'frekans atlamalı ikili FSK',
-    detail: 'her kodlu bit 13 ton çiftinden birinde; K = 9 evrişimli kod, yumuşak kararlı Viterbi (NATO STANAG 4748; Potter vd. 2014)',
+    detail: 'her kodlu bit 13 ton çiftinden birinde, bir çift 13 çipte bir çalar; K = 9 evrişimli kod, yankı kuyruğunu toplayan yumuşak kararlı alıcı (NATO STANAG 4748; Potter vd. 2014)',
   },
   {
     key: 'qam',
@@ -95,15 +96,15 @@ export const MODES = [
     name: 'OFDM-QAM',
     experimental: true,
     title: 'pilotlu, koherent OFDM',
-    detail: 'pilotlarla kanal kestirimi, QPSK/16-QAM, K = 7 evrişimli kod (IEEE 802.11a çizgisi)',
+    detail: 'eğitim sembolleri ve 4 pilotla kanal ve faz kestirimi, QPSK/16-QAM, K = 7 evrişimli kod, yumuşak kararlı Viterbi (IEEE 802.11a çizgisi)',
   },
   {
     key: 'ft8',
     num: 7,
     name: 'FT8',
     experimental: true,
-    title: '8-GFSK, LDPC ve Costas senkronu',
-    detail: 'zayıf sinyal kipi: LDPC(174, 91), yumuşak kararlı inanç yayılımı (Franke, Somerville ve Taylor 2020)',
+    title: '8-GFSK, Costas senkronu ve LDPC',
+    detail: '79 sembollük FT8 çerçevesi, Gray kodlu 8-GFSK; LDPC(174, 91) ve inanç yayılımı, alıcıda yankı modelli kafes çözümü (Franke, Somerville ve Taylor 2020)',
   },
 ];
 
