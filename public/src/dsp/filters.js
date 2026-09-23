@@ -1,5 +1,7 @@
 // Küçük sinyal işleme yardımcıları: biquad süzgeçler, Hann penceresi, Goertzel.
 
+const DENORMAL = 1e-25;
+
 /** RBJ "Audio EQ Cookbook" biquad; transpoze direkt form II. */
 export class Biquad {
   constructor(type, f0, fs, { q = Math.SQRT1_2, gainDb = 0 } = {}) {
@@ -43,8 +45,10 @@ export class Biquad {
 
   process(x) {
     const y = this.b0 * x + this.z1;
-    this.z1 = this.b1 * x - this.a1 * y + this.z2;
-    this.z2 = this.b2 * x - this.a2 * y;
+    // Sessizlikte durumlar üstel söner ve denormal sayılara iner; işlemci onlarla ~20 kat
+    // yavaş hesaplar. DENORMAL ekleyip çıkarmak, onun altındaki değerleri tam sıfıra yuvarlar.
+    this.z1 = this.b1 * x - this.a1 * y + this.z2 + DENORMAL - DENORMAL;
+    this.z2 = this.b2 * x - this.a2 * y + DENORMAL - DENORMAL;
     return y;
   }
 }
