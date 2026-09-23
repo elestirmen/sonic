@@ -197,7 +197,7 @@ function badge(text) {
 const modeOf = (p) => MODES.find((m) => m.key === p.mod);
 
 function renderMethods() {
-  const modes = MODES.filter((m) => state.experimental || !m.experimental);
+  const modes = MODES.filter((m) => (state.experimental || !m.experimental) && PROFILES.some((p) => p.mod === m.key));
   ui.methodPicker.className = `segmented method n${modes.length}`;
   ui.methodPicker.replaceChildren(
     ...modes.map((m) => {
@@ -865,10 +865,14 @@ async function decodeFile(file) {
   }
 }
 
-/** Profilin amaçlandığı koşula uygun bir oda: Turbo yan yana, Çok hızlı ~1 m, CSS uzak ve gürültülü. */
+/**
+ * Profilin amaçlandığı koşula uygun bir oda: Turbo yan yana, Çok hızlı ~1 m, CSS uzak ve gürültülü.
+ * Profil kendi koşulunu p.sim = { label, channel } ile verebilir.
+ */
 function simulationFor(p) {
   const band = profileBand(p);
   const base = { noiseBand: [band.lo * 0.5, Math.min(23000, band.hi * 1.5)], lowCut: 250, delay: 0.3 };
+  if (p.sim) return { label: p.sim.label, channel: { ...base, ...p.sim.channel } };
   if (p.mod === 'css') {
     if (p.speed === 'saglam') return { label: 'çok uzak, yankılı salon, gürültü sinyalden 8 dB güçlü', channel: { ...base, rt60: 1.0, drr: -8, snr: -8 } };
     if (p.speed === 'normal') return { label: 'uzak, yankılı salon, gürültü sinyalden 5 dB güçlü', channel: { ...base, rt60: 0.8, drr: -5, snr: -5 } };

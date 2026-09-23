@@ -1,24 +1,23 @@
 // Verici tarafı: mesaj baytları → paket (başlık + veri birimleri) → ses dalga formu.
-// Birim, sert kararlı kiplemelerde (MFSK, DQPSK-OFDM) nibble; evrişimli kodlu
-// kiplemelerde (CSS) kodlu bittir.
+// Birim, sert kararlı kiplemelerde (MFSK, DQPSK-OFDM) nibble; iç kodlu kiplemelerde
+// (CSS, DSSS, JANUS, OFDM-QAM, FT8) kodlu bittir.
 
 import { PRE_SILENCE, POST_SILENCE, getProfile, supportsProfile, symbolDuration } from './profiles.js';
 import { chirpWaveform } from './dsp/chirp.js';
 import {
-  HEADER_CODED_BITS,
   HEADER_NIBBLES,
   KIND_TEXT,
   bytesToNibbles,
-  convHeader,
-  convPayload,
-  convPayloadBits,
+  codedHeader,
+  codedPayload,
+  codedPayloadBits,
   encodeHeader,
   encodePayload,
+  headerCodedBits,
+  innerCode,
   payloadLayout,
 } from './codec/framing.js';
-import { mfskSymbolCount, renderMfsk } from './mod/mfsk.js';
-import { ofdmSymbolCount, renderOfdm } from './mod/ofdm.js';
-import { cssSymbolCount, renderCss } from './mod/css.js';
+import { MODS } from './mod/registry.js';
 
 export { PROFILES, getProfile, supportsProfile } from './profiles.js';
 export { Receiver } from './receiver.js';
@@ -26,18 +25,12 @@ export { Receiver } from './receiver.js';
 /** Çok paketli akışta paketler arasındaki sessizlik (s). */
 export const PACKET_GAP = 0.06;
 
-const MODS = {
-  mfsk: { render: renderMfsk, count: (p, h, n) => mfskSymbolCount(p, n) },
-  ofdm: { render: renderOfdm, count: (p, h, n) => ofdmSymbolCount(p, n) },
-  css: { render: renderCss, count: (p, h, n) => cssSymbolCount(p, h, n) },
-};
-
 /** Paketin başlık ve veri birimleri. */
 export function buildPacket(message, profile, { encrypted = false, kind = KIND_TEXT } = {}) {
   if (message.length === 0) throw new RangeError('mesaj boş');
   if (message.length > profile.maxBytes) throw new RangeError(`paket en çok ${profile.maxBytes} bayt olabilir`);
-  if (profile.conv) {
-    return { header: convHeader(message.length, profile, { encrypted, kind }), payload: convPayload(message, profile) };
+  if (innerCode(profile)) {
+    return { header: codedHeader(message.length, profile, { encrypted, kind }), payload: codedPayload(message, profile) };
   }
   return {
     header: bytesToNibbles(encodeHeader(message.length, profile.id, { encrypted, kind })),
@@ -47,8 +40,8 @@ export function buildPacket(message, profile, { encrypted = false, kind = KIND_T
 
 /** Başlık ve veri birim sayıları (paketi kurmadan). */
 function unitCounts(byteLength, profile) {
-  return profile.conv
-    ? [HEADER_CODED_BITS, convPayloadBits(byteLength, profile)]
+  return innerCode(profile)
+    ? [headerCodedBits(profile), codedPayloadBits(byteLength, profile)]
     : [HEADER_NIBBLES, payloadLayout(byteLength, profile).total * 2];
 }
 

@@ -21,13 +21,23 @@
 //
 // CSS (mod: 'css', bkz. mod/css.js) — LoRa tipi chirp yayılı spektrum: fLow–fHigh
 // bandında 2^sf kaymalı chirp'ler, her sembol sf bit. Bitler K = 7 evrişimli kodla
-// (conv) korunur; alıcı yumuşak kararlı Viterbi kullanır.
+// (code: 'conv') korunur; alıcı yumuşak kararlı Viterbi kullanır.
 //
-// Varsayılan yöntem MFSK'dir. CSS ve OFDM deneyseldir (experimental): arayüz onları
-// ancak kullanıcı açınca sunar. Alıcı her zaman üç yöntemi de çözer.
+// Mod 4–7 (DSSS, JANUS, OFDM-QAM, FT8; bkz. mod/*.js) de iç kodludur (code: 'conv',
+// 'conv9' ya da 'ldpc'). Kendi zaman, bant ve hız bilgilerini <mod>Info(p) ile verirler.
+// Senkron chirp'lerini paylaşırlar: düşük SNR'ye yönelik olanlar (DSSS, JANUS, FT8)
+// bantlarındaki CSS chirp'ini, OFDM-QAM ise OFDM chirp'ini kullanır. Böylece dinlerken
+// işlemci yükü artmaz ve karşılaştırmada her yöntem aynı senkronla başlar.
+//
+// Varsayılan yöntem MFSK'dir. Diğerleri deneyseldir (experimental): arayüz onları
+// ancak kullanıcı açınca sunar. Alıcı her zaman tüm yöntemleri çözer.
 
-import { HEADER_NIBBLES } from './codec/framing.js';
+import { HEADER_NIBBLES, innerCode } from './codec/framing.js';
 import { cssInfo } from './mod/css.js';
+import { dsssInfo } from './mod/dsss.js';
+import { janusInfo } from './mod/janus.js';
+import { qamInfo } from './mod/qam.js';
+import { ft8Info } from './mod/ft8.js';
 
 export const PRE_SILENCE = 0.15; // bazı hoparlör yükselteçleri ilk anları yutar
 export const POST_SILENCE = 0.1;
@@ -63,6 +73,38 @@ export const MODES = [
     title: 'DQPSK-OFDM, zaman-frekans serpiştirmeli',
     detail: 'onlarca alt taşıyıcıda diferansiyel PSK, bloklar arası atlama (DAB, ETSI EN 300 401)',
   },
+  {
+    key: 'dsss',
+    num: 4,
+    name: 'DSSS',
+    experimental: true,
+    title: 'doğrudan dizili yayılı spektrum',
+    detail: 'her bit bir sözde rastgele diziyle yayılır, diferansiyel BPSK; RAKE alıcı yankı yollarını toplar (IEEE 802.11 DSSS; Price ve Green 1958)',
+  },
+  {
+    key: 'janus',
+    num: 5,
+    name: 'JANUS',
+    experimental: true,
+    title: 'frekans atlamalı ikili FSK',
+    detail: 'her kodlu bit 13 ton çiftinden birinde; K = 9 evrişimli kod, yumuşak kararlı Viterbi (NATO STANAG 4748; Potter vd. 2014)',
+  },
+  {
+    key: 'qam',
+    num: 6,
+    name: 'OFDM-QAM',
+    experimental: true,
+    title: 'pilotlu, koherent OFDM',
+    detail: 'pilotlarla kanal kestirimi, QPSK/16-QAM, K = 7 evrişimli kod (IEEE 802.11a çizgisi)',
+  },
+  {
+    key: 'ft8',
+    num: 7,
+    name: 'FT8',
+    experimental: true,
+    title: '8-GFSK, LDPC ve Costas senkronu',
+    detail: 'zayıf sinyal kipi: LDPC(174, 91), yumuşak kararlı inanç yayılımı (Franke, Somerville ve Taylor 2020)',
+  },
 ];
 
 export const SPEEDS = [
@@ -79,7 +121,7 @@ export const SPEEDS = [
 const OFDM = { mod: 'ofdm', spacing: 100, cpDur: 1 / 300, rollDur: 1 / 1500, gapDur: 0.03, maxBytes: 1024 };
 
 // CSS ortakları: evrişimli iç kod varken dış RS'nin payı küçük tutulur.
-const CSS = { mod: 'css', conv: true, gapDur: 0.02, fecRatio: 0.1, fecMin: 4, maxBytes: 255 };
+const CSS = { mod: 'css', code: 'conv', gapDur: 0.02, fecRatio: 0.1, fecMin: 4, maxBytes: 255 };
 
 // Senkron chirp'leri. Aynı bantta benzer profiller bir chirp'i paylaşır: alıcı her chirp
 // için ayrı bir FFT ilintisi yürütür, dinlerken işlemci yükünün çoğu buradan gelir. Hangi
@@ -442,6 +484,10 @@ export const PROFILES = [
     chirp: CHIRPS.ultraCss,
     chunkBytes: 48,
   },
+  // ---- Mod 4 · DSSS (id 20–29, anahtar dsss-…)
+  // ---- Mod 5 · JANUS (id 30–39, anahtar janus-…)
+  // ---- Mod 6 · OFDM-QAM (id 40–49, anahtar qam-…)
+  // ---- Mod 7 · FT8 (id 50–59, anahtar ft8-…)
 ];
 
 export const PROFILE_BY_KEY = Object.fromEntries(PROFILES.map((p) => [p.key, p]));
@@ -451,6 +497,9 @@ export function getProfile(key) {
   if (!p) throw new Error(`bilinmeyen profil: ${key}`);
   return p;
 }
+
+// Mod 4–7: <mod>Info(p) → { T, lo, hi, codedBitRate }.
+const MOD_INFO = { dsss: dsssInfo, janus: janusInfo, qam: qamInfo, ft8: ft8Info };
 
 export function findProfile(mode, band, speed) {
   return PROFILES.find((p) => p.mod === mode && p.band === band && p.speed === speed) ?? null;
@@ -515,6 +564,7 @@ export function ofdmInfo(p) {
 export function symbolDuration(p) {
   if (p.mod === 'ofdm') return ofdmInfo(p).Ts;
   if (p.mod === 'css') return cssInfo(p).T;
+  if (MOD_INFO[p.mod]) return MOD_INFO[p.mod](p).T;
   return p.symbolDur;
 }
 
@@ -529,6 +579,8 @@ export function profileBand(p) {
   } else if (p.mod === 'css') {
     lo = p.fLow;
     hi = p.fHigh;
+  } else if (MOD_INFO[p.mod]) {
+    ({ lo, hi } = MOD_INFO[p.mod](p));
   } else {
     lo = p.fStart;
     hi = toneFrequency(p, p.channels - 1, p.sets - 1, VALUES_PER_TONE - 1);
@@ -551,13 +603,14 @@ export function rawByteRate(p) {
     return (Kb * bits) / 8 / Ts;
   }
   if (p.mod === 'css') return p.sf / 8 / cssInfo(p).T;
+  if (MOD_INFO[p.mod]) return MOD_INFO[p.mod](p).codedBitRate / 8;
   return (p.channels * 4) / 8 / p.symbolDur;
 }
 
 /**
- * Net bilgi hızı (bayt/sn): ham hız × evrişimli kod oranı (1/2) × RS oranı. Paket başı
- * yük (senkron, başlık) hariç; yöntemleri karşılaştırmak için ham hızdan daha dürüst.
+ * Net bilgi hızı (bayt/sn): ham hız × iç kod oranı × RS oranı. Paket başı yük (senkron,
+ * başlık) hariç; yöntemleri karşılaştırmak için ham hızdan daha dürüst.
  */
 export function netByteRate(p) {
-  return (rawByteRate(p) * (p.conv ? 0.5 : 1)) / (1 + p.fecRatio);
+  return (rawByteRate(p) * (innerCode(p)?.rate ?? 1)) / (1 + p.fecRatio);
 }

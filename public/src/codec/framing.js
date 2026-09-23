@@ -7,18 +7,22 @@
 // bit 4 şifreli, bit 3–0 uzunluğun üst 4 biti; bayt 1: uzunluğun alt 8 biti; bayt 2: profil no.
 // Alıcı; sürüm, profil ve uzunluğun profil sınırında olmasını kontrol ederek sahte senkronları eler.
 //
-// Evrişimli kodlu profillerde (conv) başlık ve veri baytları ayrıca bit düzeyinde K = 7,
-// oran 1/2 kodla korunur (bkz. conv.js): RS dış kod, evrişimli kod iç koddur.
+// İç kodlu profillerde (profile.code) başlık ve veri baytları ayrıca bit düzeyinde korunur:
+// RS dış kod, iç kod evrişimli (conv: K = 7, conv9: K = 9; bkz. conv.js) ya da LDPC'dir
+// (ldpc; bkz. ldpc.js). Bu profillerin kiplemesi bit başına yumuşak karar (LLR) üretir.
+//
+// İç kod arayüzü: rate, codedLength(k), encode(bits) → kodlu bitler,
+// decode(llr, k) → { bits, conf } (conf: bayt başına güven, RS silintileri için).
 
 import { crc32 } from './crc32.js';
 import { rsEncode, rsDecode } from './reedsolomon.js';
-import { bitsToBytes, byteReliability, bytesToBits, codedLength, convEncode, viterbiDecode } from './conv.js';
+import { CONV7, CONV9, bitsToBytes, bytesToBits } from './conv.js';
+import { LDPC } from './ldpc.js';
 
 export const VERSION = 3;
 export const HEADER_PARITY = 4;
 export const HEADER_BYTES = 3 + HEADER_PARITY;
 export const HEADER_NIBBLES = HEADER_BYTES * 2;
-export const HEADER_CODED_BITS = codedLength(HEADER_BYTES * 8);
 export const KIND_TEXT = 0;
 export const KIND_CHUNK = 1;
 const CRC_BYTES = 4;
@@ -202,28 +206,36 @@ function* cartesian(lists, prefix = []) {
   for (const item of lists[prefix.length]) yield* cartesian(lists, [...prefix, item]);
 }
 
-// ---------------------------------------------------------------- evrişimli kodlu paketler
+// ---------------------------------------------------------------- iç kodlu paketler
+
+const CODES = { conv: CONV7, conv9: CONV9, ldpc: LDPC };
+
+/** Profilin iç kodu; yoksa null (sert kararlı nibble akışı: MFSK, DQPSK-OFDM). */
+export const innerCode = (profile) => (profile.code ? CODES[profile.code] : null);
+
+/** Başlığın kodlu bit sayısı. */
+export const headerCodedBits = (profile) => innerCode(profile).codedLength(HEADER_BYTES * 8);
 
 /** Başlık → kodlu bitler (serpiştirme kiplemeye aittir). */
-export function convHeader(length, profile, opts) {
-  return convEncode(bytesToBits(encodeHeader(length, profile.id, opts)));
+export function codedHeader(length, profile, opts) {
+  return innerCode(profile).encode(bytesToBits(encodeHeader(length, profile.id, opts)));
 }
 
-export function convPayload(message, profile) {
-  return convEncode(bytesToBits(encodePayload(message, profile)));
+export function codedPayload(message, profile) {
+  return innerCode(profile).encode(bytesToBits(encodePayload(message, profile)));
 }
 
 /** Verinin kodlu bit sayısı (alıcı başlıktan sonra bekleyeceği uzunluğu bununla bulur). */
-export function convPayloadBits(length, profile) {
-  return codedLength(payloadLayout(length, profile).total * 8);
+export function codedPayloadBits(length, profile) {
+  return innerCode(profile).codedLength(payloadLayout(length, profile).total * 8);
 }
 
-export function decodeConvHeader(llr, profile) {
-  const bits = viterbiDecode(llr, HEADER_BYTES * 8);
-  return decodeHeader(bitsToBytes(bits), byteReliability(bits, llr), profile);
+export function decodeCodedHeader(llr, profile) {
+  const { bits, conf } = innerCode(profile).decode(llr, HEADER_BYTES * 8);
+  return decodeHeader(bitsToBytes(bits), conf, profile);
 }
 
-export function decodeConvPayload(llr, length, profile) {
-  const bits = viterbiDecode(llr, payloadLayout(length, profile).total * 8);
-  return decodePayload(bitsToBytes(bits), byteReliability(bits, llr), length, profile);
+export function decodeCodedPayload(llr, length, profile) {
+  const { bits, conf } = innerCode(profile).decode(llr, payloadLayout(length, profile).total * 8);
+  return decodePayload(bitsToBytes(bits), conf, length, profile);
 }

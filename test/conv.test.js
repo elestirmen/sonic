@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  CONV7,
+  CONV9,
   bitsToBytes,
   byteReliability,
   bytesToBits,
@@ -72,4 +74,21 @@ test('bayt güveni: kanalın bozduğu bölge düşük güven alır', () => {
   const worst = conf.indexOf(Math.min(...conf));
   assert.ok(worst >= 11 && worst <= 15, `en düşük güven bayt ${worst}`);
   assert.ok(conf[0] > conf[worst] + 5);
+});
+
+test('K = 9 (JANUS): gidiş-dönüş ve 3 dB Eb/N0 hata oranı K = 7\'ninkinden düşük', () => {
+  const bits = randomBits(500);
+  assert.deepEqual(CONV9.viterbi(Float32Array.from(CONV9.encode(bits), (b) => (b ? -4 : 4)), bits.length), bits);
+  let e7 = 0;
+  let e9 = 0;
+  for (let i = 0; i < 10; i++) {
+    const b = randomBits(2000);
+    const d7 = CONV7.viterbi(channel(CONV7.encode(b), 3), b.length);
+    const d9 = CONV9.decode(channel(CONV9.encode(b), 3), b.length).bits;
+    for (let k = 0; k < b.length; k++) {
+      if (d7[k] !== b[k]) e7++;
+      if (d9[k] !== b[k]) e9++;
+    }
+  }
+  assert.ok(e9 < e7, `K9 ${e9} hata, K7 ${e7} hata`);
 });

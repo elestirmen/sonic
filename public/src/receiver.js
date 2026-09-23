@@ -6,21 +6,21 @@ import { SampleStore } from './dsp/store.js';
 import { ChirpDetector } from './dsp/sync.js';
 import {
   HEADER_BYTES,
-  HEADER_CODED_BITS,
   HEADER_NIBBLES,
   WEAK_DB,
-  convPayloadBits,
-  decodeConvHeader,
-  decodeConvPayload,
+  codedPayloadBits,
+  decodeCodedHeader,
+  decodeCodedPayload,
   decodeHeader,
   decodePayload,
+  headerCodedBits,
+  innerCode,
   nibblesToBytes,
   payloadLayout,
 } from './codec/framing.js';
 import { deinterleave } from './codec/conv.js';
 import { MfskDemod, MfskReader } from './mod/mfsk.js';
-import { OfdmDemod } from './mod/ofdm.js';
-import { CssDemod } from './mod/css.js';
+import { MODS } from './mod/registry.js';
 
 const STORE_SECONDS = 12;
 
@@ -89,15 +89,30 @@ class NibbleCoder {
   }
 }
 
-/** Yumuşak kararlı akış (CSS): sembol başına LLR'ler; başlık ve veri ayrı ayrı Viterbi'den geçer. */
+/**
+ * Yumuşak kararlı akış (iç kodlu yöntemler): sembol başına LLR'ler; başlık ve veri ayrı ayrı
+ * iç koddan (Viterbi ya da LDPC) geçer. Çözücü (demod) sağlar:
+ *   bitsPerSymbol                    sembol başına kodlu bit
+ *   symbolsFor(bits, part)?          'header' | 'payload' bölümünün sembol sayısı
+ *                                    (yoksa ⌈bits / bitsPerSymbol⌉)
+ *   deinterleave(flat, n, part)?     kendi serpiştirmesinin tersi (yoksa satır-sütun, bitsPerSymbol satır)
+ *   payloadSeconds(symbols)?         veri bölümünün süresi (yoksa sembol sayısı × sembol süresi)
+ * read() sonucu { soft, margin, snr }; soft'u olmayan (başvuru, senkron) semboller atlanır.
+ */
 class SoftCoder {
   constructor(profile, demod) {
     this.profile = profile;
+    this.demod = demod;
     this.bps = demod.bitsPerSymbol;
-    this.headerSymbols = Math.ceil(HEADER_CODED_BITS / this.bps);
+    this.headerBits = headerCodedBits(profile);
+    this.headerSymbols = this.symbolsFor(this.headerBits, 'header');
     this.symbols = [];
     this.margins = [];
     this.snrs = [];
+  }
+
+  symbolsFor(bits, part) {
+    return this.demod.symbolsFor ? this.demod.symbolsFor(bits, part) : Math.ceil(bits / this.bps);
   }
 
   push(res) {
@@ -107,10 +122,15 @@ class SoftCoder {
     this.snrs.push(res.snr);
   }
 
-  llr(from, count, n) {
-    const flat = new Float32Array(count * this.bps);
-    for (let j = 0; j < count; j++) flat.set(this.symbols[from + j], j * this.bps);
-    return deinterleave(flat, this.bps, n);
+  llr(from, count, n, part) {
+    const list = this.symbols.slice(from, from + count);
+    const flat = new Float32Array(list.reduce((s, x) => s + x.length, 0));
+    let o = 0;
+    for (const x of list) {
+      flat.set(x, o);
+      o += x.length;
+    }
+    return this.demod.deinterleave ? this.demod.deinterleave(flat, n, part) : deinterleave(flat, this.bps, n);
   }
 
   headerReady() {
@@ -118,11 +138,11 @@ class SoftCoder {
   }
 
   header() {
-    const header = decodeConvHeader(this.llr(0, this.headerSymbols, HEADER_CODED_BITS), this.profile);
+    const header = decodeCodedHeader(this.llr(0, this.headerSymbols, this.headerBits, 'header'), this.profile);
     if (header) {
       this.length = header.length;
-      this.bits = convPayloadBits(header.length, this.profile);
-      this.need = Math.ceil(this.bits / this.bps);
+      this.bits = codedPayloadBits(header.length, this.profile);
+      this.need = this.symbolsFor(this.bits, 'payload');
     }
     return header;
   }
@@ -136,7 +156,7 @@ class SoftCoder {
   }
 
   payload() {
-    return decodeConvPayload(this.llr(this.headerSymbols, this.need, this.bits), this.length, this.profile);
+    return decodeCodedPayload(this.llr(this.headerSymbols, this.need, this.bits, 'payload'), this.length, this.profile);
   }
 
   stats() {
@@ -144,7 +164,7 @@ class SoftCoder {
   }
 
   payloadSeconds() {
-    return this.need * symbolDuration(this.profile);
+    return this.demod.payloadSeconds ? this.demod.payloadSeconds(this.need) : this.need * symbolDuration(this.profile);
   }
 }
 
@@ -154,10 +174,9 @@ class PacketDecoder {
     this.profile = profile;
     this.sync = sync;
     const start = sync.pos + (profile.chirp.dur + profile.gapDur) * fs;
-    if (profile.mod === 'ofdm') this.demod = new OfdmDemod(profile, fs, start);
-    else if (profile.mod === 'css') this.demod = new CssDemod(profile, fs, start);
-    else this.demod = new MfskDemod(reader, sync.pos + Math.round((profile.chirp.dur + profile.gapDur) * fs));
-    this.coder = profile.conv ? new SoftCoder(profile, this.demod) : new NibbleCoder(profile, this.demod);
+    if (profile.mod === 'mfsk') this.demod = new MfskDemod(reader, sync.pos + Math.round((profile.chirp.dur + profile.gapDur) * fs));
+    else this.demod = new MODS[profile.mod].Demod(profile, fs, start);
+    this.coder = innerCode(profile) ? new SoftCoder(profile, this.demod) : new NibbleCoder(profile, this.demod);
     this.j = 0;
     this.header = null;
     this.done = false;
