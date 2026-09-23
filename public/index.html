@@ -6,7 +6,7 @@
     <title>Sonik · sesle veri aktarımı</title>
     <meta
       name="description"
-      content="Tarayıcıda çalışan akustik modem: metni sese çevirir, başka bir cihaz mikrofonla dinleyip çözer. Sunucu yok; her şey tarayıcıda."
+      content="Tarayıcıda çalışan akustik modem: metni, görseli ya da dosyayı sese çevirir, başka bir cihaz mikrofonla dinleyip çözer. Sunucu yok; her şey tarayıcıda."
     />
     <meta name="theme-color" content="#0f766e" />
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
@@ -29,7 +29,7 @@
         </svg>
         <div>
           <h1>Sonik</h1>
-          <p>Sesle veri aktarımı: metni sese çevir, başka bir cihaz dinleyip çözsün.</p>
+          <p>Sesle veri aktarımı: metni, görseli ya da dosyayı sese çevir, başka bir cihaz dinleyip çözsün.</p>
         </div>
       </div>
     </header>
@@ -40,15 +40,57 @@
       <section class="card" aria-labelledby="send-title">
         <h2 id="send-title">Gönder</h2>
 
-        <label class="field">
-          <span class="label">Mesaj</span>
-          <textarea id="message" rows="4" placeholder="Gönderilecek mesajı yaz…">Merhaba! Bu mesaj sesle geldi 🙂</textarea>
-          <span class="hint"><span><span id="byte-count">0</span> / 255 bayt</span> <span id="duration-estimate"></span></span>
-        </label>
+        <div class="tabs" role="tablist" aria-label="Gönderilecek içerik">
+          <button id="tab-text" type="button" role="tab" aria-selected="true" aria-controls="pane-text">Metin</button>
+          <button id="tab-file" type="button" role="tab" aria-selected="false" aria-controls="pane-file" tabindex="-1">
+            Görsel / dosya
+          </button>
+        </div>
+
+        <div id="pane-text" role="tabpanel" aria-labelledby="tab-text">
+          <label class="field">
+            <span class="label">Mesaj</span>
+            <textarea id="message" rows="4" placeholder="Gönderilecek mesajı yaz…">Merhaba! Bu mesaj sesle geldi 🙂</textarea>
+            <span class="hint" id="text-hint"><span id="byte-count">0 bayt</span> <span id="duration-estimate"></span></span>
+          </label>
+        </div>
+
+        <div id="pane-file" role="tabpanel" aria-labelledby="tab-file" hidden>
+          <div class="drop" id="drop">
+            <div class="drop-actions">
+              <label class="btn">
+                Görsel ya da dosya seç
+                <input id="file-pick" type="file" hidden />
+              </label>
+              <label class="btn camera">
+                Fotoğraf çek
+                <input id="camera-pick" type="file" accept="image/*" capture="environment" hidden />
+              </label>
+            </div>
+            <span class="hint">ya da buraya sürükle / yapıştır</span>
+          </div>
+          <div class="attachment" id="attachment" hidden>
+            <img id="attachment-preview" alt="" hidden />
+            <div class="attachment-body">
+              <strong id="attachment-name"></strong>
+              <span class="hint" id="attachment-info"></span>
+            </div>
+            <button id="attachment-clear" class="btn small ghost" type="button">Kaldır</button>
+          </div>
+          <div class="field" id="quality-field" hidden>
+            <span class="label" id="quality-label">Görsel boyutu</span>
+            <div class="segmented" id="quality-picker" role="radiogroup" aria-labelledby="quality-label"></div>
+          </div>
+          <span class="hint file-estimate" id="file-estimate"></span>
+        </div>
 
         <div class="field">
-          <span class="label" id="profile-label">Profil</span>
-          <div class="segmented" id="profile-picker" role="radiogroup" aria-labelledby="profile-label"></div>
+          <span class="label" id="band-label">Frekans bandı</span>
+          <div class="segmented three" id="band-picker" role="radiogroup" aria-labelledby="band-label"></div>
+        </div>
+        <div class="field">
+          <span class="label" id="speed-label">Hız</span>
+          <div class="segmented five" id="speed-picker" role="radiogroup" aria-labelledby="speed-label"></div>
           <span class="hint" id="profile-summary"></span>
         </div>
 
@@ -62,7 +104,7 @@
           <summary>Parolayla şifrele (isteğe bağlı)</summary>
           <label class="field">
             <input id="password" type="password" autocomplete="off" placeholder="Boş bırakırsan şifrelenmez" />
-            <span class="hint">Alan cihaza da aynı parolayı gir. Şifreleme mesaja 36 bayt ekler.</span>
+            <span class="hint">Alan cihaza da aynı parolayı gir. Şifreleme 36 bayt ekler.</span>
           </label>
         </details>
 
@@ -73,8 +115,13 @@
           </button>
           <button id="wav-btn" class="btn" type="button">WAV indir</button>
         </div>
+        <label class="check" id="loop-field" hidden>
+          <input id="loop" type="checkbox" />
+          <span>Durdurana kadar tekrarla <small>(kaçan parçalar sonraki turda tamamlanır)</small></span>
+        </label>
         <div class="playback" id="playback" hidden>
           <div class="bar"><div id="play-progress"></div></div>
+          <span class="play-label" id="play-label"></span>
           <button id="stop-btn" class="btn small" type="button">Durdur</button>
         </div>
       </section>
@@ -96,11 +143,23 @@
         <div class="meter" title="Giriş seviyesi"><div id="level"></div></div>
         <div class="bar receive" id="rx-bar" hidden><div id="rx-progress"></div></div>
 
+        <div class="transfer" id="transfer" hidden>
+          <div class="transfer-head">
+            <span id="transfer-label"></span>
+            <span class="hint" id="transfer-count"></span>
+          </div>
+          <div class="bar"><div id="transfer-progress"></div></div>
+        </div>
+
         <div class="last" id="last-message" hidden>
+          <img class="last-image" id="last-image" alt="" hidden />
           <div class="last-text" id="last-text"></div>
           <div class="last-foot">
             <span class="last-meta" id="last-meta"></span>
-            <button id="copy-last" class="btn small ghost" type="button">Kopyala</button>
+            <span class="last-actions">
+              <button id="save-last" class="btn small ghost" type="button" hidden>İndir</button>
+              <button id="copy-last" class="btn small ghost" type="button">Kopyala</button>
+            </span>
           </div>
         </div>
 
@@ -109,7 +168,7 @@
             Dosyadan çöz
             <input id="file-input" type="file" accept="audio/*,.wav" hidden />
           </label>
-          <button id="selftest-btn" class="btn small" type="button" title="Mesajı yankılı, gürültülü bir odadan geçmiş gibi çözer">
+          <button id="selftest-btn" class="btn small" type="button" title="Gönderilecek içeriği, seçili profile uygun bir odadan geçmiş gibi çözer">
             Simülasyonla dene
           </button>
         </div>
@@ -128,25 +187,38 @@
         <summary><h2>Nasıl çalışır?</h2></summary>
         <div class="about-body">
           <p>
-            Sonik bir <b>akustik modem</b>. Mesaj UTF-8 baytlara çevrilir, sonuna CRC-32 eklenir ve
-            Reed-Solomon kodu ile korunur. Her 4 bit, 16 frekanstan biri olarak çalınır; profile göre aynı
-            anda 1–4 ton birden (MFSK).
+            Sonik bir <b>akustik modem</b>. Veri baytlara çevrilir, sonuna CRC-32 eklenir ve Reed-Solomon kodu
+            ile korunur, sonra seçilen profile göre sese dönüştürülür.
           </p>
           <pre class="packet" aria-label="Paket yapısı">
-│ chirp │ boşluk │ başlık (uzunluk, sürüm) │ veri + CRC-32 │ RS parite │
-  senkron          ← her sembolde 1–4 ton, her ton 4 bit →</pre>
+│ chirp │ boşluk │ başlık (uzunluk, tür, sürüm) │ veri + CRC-32 │ RS parite │
+  senkron          ← MFSK tonları ya da OFDM alt taşıyıcıları →</pre>
           <ul>
             <li>
               <b>Senkron:</b> paket bir <i>chirp</i> (frekans süpürmesi) ile başlar. Alıcı gelen sesi bu şablonla
               ilişkilendirip paketin başladığı anı milisaniyenin altında bulur; chirp'in biçiminden profili de tanır.
             </li>
             <li>
-              <b>Yankıya karşı:</b> ardışık semboller dönüşümlü ton kümeleri kullanır. Oda yankısı önceki sembolü
-              uzatsa da çözülen kümeye düşmez.
+              <b>Sağlam, Normal, Hızlı (MFSK):</b> her 4 bit 16 frekanstan biri olarak çalınır; aynı anda 1–4 ton.
+              Ardışık semboller dönüşümlü ton kümeleri kullanır, oda yankısı önceki sembolü uzatsa da çözülen kümeye
+              düşmez. Uzak mesafe ve yankılı ortam için.
+            </li>
+            <li>
+              <b>Çok hızlı ve Turbo (OFDM):</b> bantta 100 Hz aralıklı onlarca alt taşıyıcı birden çalar, her biri
+              bir önceki kullanımına göre faz farkıyla 1–2 bit taşır. Taşıyıcılar bloklara bölünür ve semboller
+              bloklar arasında atlar; bir blok, eski yankısı sönünce yeniden kullanılır. Saat farkı ve cihaz hareketi
+              fazda frekansla orantılı bir eğim olarak ölçülüp düzeltilir. MFSK'nin 5–20 katı hız; ama yankı arttıkça
+              (mesafe) hata artar, bu yüzden yakın mesafe içindir.
+            </li>
+            <li>
+              <b>Görsel ve dosya:</b> görsel önce seçilen boyuta küçültülüp WebP/JPEG olarak yeniden kodlanır (konum
+              gibi bilgiler gönderilmez). İçerik parçalara bölünür, parçalara ek olarak Reed-Solomon eşlik parçaları
+              üretilir: alıcı herhangi yeterli sayıda parçayı duyunca dosyayı kurar. Kaçan parçalar varsa gönderen
+              "tekrarla" ile çalmayı sürdürür, alıcı eksikleri sonraki turda tamamlar.
             </li>
             <li>
               <b>Hata düzeltme:</b> çözücü her sembolün ne kadar net olduğunu ölçer. Şüpheli baytlar Reed-Solomon'a
-              "silinti" olarak verilir; böylece iki kat fazla hata düzeltilir. CRC tutmayan mesaj asla gösterilmez.
+              "silinti" olarak verilir; böylece iki kat fazla hata düzeltilir. CRC tutmayan veri asla gösterilmez.
             </li>
             <li>
               <b>Mikrofon:</b> tarayıcının yankı engelleme, gürültü bastırma ve otomatik kazanç özellikleri kapatılır;
@@ -155,16 +227,17 @@
           </ul>
           <table class="profiles">
             <thead>
-              <tr><th>Profil</th><th>Hız</th><th>Bant</th><th>Ne zaman</th></tr>
+              <tr><th>Profil</th><th>Ham hız</th><th>Bant</th><th>Ne zaman</th></tr>
             </thead>
             <tbody id="profile-table"></tbody>
           </table>
           <p class="tips">
             <b>İpuçları:</b> ses %50–90 arası iyi; hoparlörü sonuna kadar açmak bozulmaya yol açabilir. Önce aynı
-            odada 1 m ile dene. Bluetooth kulaklık/hoparlör sesi sıkıştırıp tonları bozabilir. iPhone'da sessiz mod
-            anahtarı sesi kapatabilir. İşletim sisteminin mikrofon gürültü engellemesi kapalı olmalı (macOS: Denetim
-            Merkezi → Mikrofon Modu → Standart; "Ses Yalıtımı" tonları siler). Telefonda dinlerken ekranı açık ve
-            sayfayı önde tut; arka planda tarayıcı mikrofonu durdurabilir.
+            odada 1 m ile dene; Turbo için cihazları yan yana koy. Yüksek ve ultrasonik bantlarda telefonun
+            hoparlörünü alıcının mikrofonuna çevir. Bluetooth kulaklık/hoparlör sesi sıkıştırıp tonları bozabilir.
+            iPhone'da sessiz mod anahtarı sesi kapatabilir. İşletim sisteminin mikrofon gürültü engellemesi kapalı
+            olmalı (macOS: Denetim Merkezi → Mikrofon Modu → Standart; "Ses Yalıtımı" tonları siler). Telefonda
+            dinlerken ekranı açık ve sayfayı önde tut; arka planda tarayıcı mikrofonu durdurabilir.
           </p>
           <p class="tips">
             <b>Gizlilik:</b> sunucu yok; ses de mesaj da hiçbir yere gönderilmez, her şey bu tarayıcıda işlenir. Ama

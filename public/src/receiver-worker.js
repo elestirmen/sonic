@@ -1,17 +1,19 @@
-// Çözme işi ana iş parçacığını (arayüzü) yormasın diye burada yapılır.
+// Kodlama ve çözme işi ana iş parçacığını (arayüzü) yormasın diye burada yapılır.
 //
 // Ana → worker:
 //   { type: 'start', sampleRate }            canlı dinleme başlat
 //   { type: 'samples', data }                canlı ses parçası (Float32Array)
 //   { type: 'stop' }
+//   { type: 'encode', id, payloads, profile, sampleRate, kind, encrypted, amplitude }
 //   { type: 'decode', id, sampleRate, data } dosyadaki sesi çöz
-//   { type: 'selftest', id, bytes, profile, encrypted, channel }
+//   { type: 'selftest', id, payloads, profile, kind, encrypted, channel }
 // Worker → ana:
 //   { type: 'event', event }                 canlı alıcı olayı
+//   { type: 'encoded', id, samples, duration, packets }
 //   { type: 'decoded', id, events, ms, seconds }
 
 import { Receiver } from './receiver.js';
-import { encodeMessage } from './modem.js';
+import { encodePackets } from './modem.js';
 import { simulateChannel } from './dsp/channel.js';
 
 let live = null;
@@ -38,12 +40,17 @@ self.onmessage = (e) => {
       case 'stop':
         live = null;
         break;
+      case 'encode': {
+        const res = encodePackets(m.payloads, m.profile, m.sampleRate, m);
+        self.postMessage({ type: 'encoded', id: m.id, ...res }, [res.samples.buffer]);
+        break;
+      }
       case 'decode':
         self.postMessage({ type: 'decoded', id: m.id, ...decodeBuffer(m.data, m.sampleRate) });
         break;
       case 'selftest': {
         const fs = 48000;
-        const { samples } = encodeMessage(m.bytes, m.profile, fs, { encrypted: m.encrypted });
+        const { samples } = encodePackets(m.payloads, m.profile, fs, m);
         const heard = simulateChannel(samples, fs, { ...m.channel, seed: Math.floor(Math.random() * 1e9) });
         self.postMessage({ type: 'decoded', id: m.id, ...decodeBuffer(heard, fs) });
         break;

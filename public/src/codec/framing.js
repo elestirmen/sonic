@@ -1,31 +1,34 @@
 // Paket çerçevesi: başlık ve veri baytları, CRC ve Reed-Solomon koruması.
 //
-//   başlık : [uzunluk, bayraklar] + 4 RS parite  → 6 bayt (en çok 2 hatayı düzeltir)
-//   veri   : mesaj + CRC-32, RS bloklarına bölünüp baytları iç içe dizilir
+//   başlık : [uzunluk (2), bayraklar] + 4 RS parite  → 7 bayt (en çok 2 hatayı düzeltir)
+//   veri   : içerik + CRC-32, RS bloklarına bölünüp baytları iç içe dizilir
 //
-// Bayraklar: bit 7–6 sürüm, bit 5–4 profil no, bit 3 şifreli, bit 2–0 ayrılmış (0).
-// Alıcı; sürüm, profil ve ayrılmış bitleri kontrol ederek sahte senkronları eler.
+// Bayraklar: bit 7–6 sürüm, bit 5–2 profil no, bit 1 şifreli, bit 0 tür
+// (0 metin, 1 nesne parçası: görsel/dosya, bkz. transfer.js).
+// Alıcı; sürüm, profil ve uzunluğun profil sınırında olmasını kontrol ederek sahte senkronları eler.
 
 import { crc32 } from './crc32.js';
 import { rsEncode, rsDecode } from './reedsolomon.js';
 
-export const VERSION = 1;
+export const VERSION = 2;
 export const HEADER_PARITY = 4;
-export const HEADER_BYTES = 2 + HEADER_PARITY;
-export const MAX_MESSAGE_BYTES = 255;
+export const HEADER_BYTES = 3 + HEADER_PARITY;
+export const HEADER_NIBBLES = HEADER_BYTES * 2;
+export const KIND_TEXT = 0;
+export const KIND_CHUNK = 1;
 const CRC_BYTES = 4;
-const WEAK_DB = 3; // bu marjın altındaki semboller "şüpheli" sayılır
+export const WEAK_DB = 3; // bu marjın altındaki semboller "şüpheli" sayılır
 
-export function makeFlags(profileId, encrypted = false) {
-  return (VERSION << 6) | ((profileId & 3) << 4) | (encrypted ? 8 : 0);
+export function makeFlags(profileId, { encrypted = false, kind = KIND_TEXT } = {}) {
+  return (VERSION << 6) | ((profileId & 15) << 2) | (encrypted ? 2 : 0) | (kind & 1);
 }
 
 export function parseFlags(flags) {
   return {
     version: flags >> 6,
-    profileId: (flags >> 4) & 3,
-    encrypted: (flags & 8) !== 0,
-    reserved: flags & 7,
+    profileId: (flags >> 2) & 15,
+    encrypted: (flags & 2) !== 0,
+    kind: flags & 1,
   };
 }
 
@@ -50,14 +53,14 @@ export function nibblesToBytes(nibbles, nibbleConf, byteCount) {
 }
 
 export function encodeHeader(length, flags) {
-  return rsEncode(Uint8Array.of(length, flags), HEADER_PARITY);
+  return rsEncode(Uint8Array.of(length >> 8, length & 255, flags), HEADER_PARITY);
 }
 
 /**
  * Başlığı çözer. Sahte senkronların geçmemesi için silinti denemesi en çok
  * 2 baytla sınırlı; böylece RS'nin hata yakalama payı kalır.
  */
-export function decodeHeader(bytes, conf, expectedProfileId) {
+export function decodeHeader(bytes, conf, profile) {
   const attempts = [[]];
   const weak = worstIndices(conf, 2, WEAK_DB);
   if (weak.length) attempts.push(weak);
@@ -68,10 +71,11 @@ export function decodeHeader(bytes, conf, expectedProfileId) {
     } catch {
       continue;
     }
-    const [length, flags] = res.data;
+    const [hi, lo, flags] = res.data;
+    const length = (hi << 8) | lo;
     const f = parseFlags(flags);
-    if (f.version !== VERSION || f.reserved !== 0 || f.profileId !== expectedProfileId || length === 0) continue;
-    return { length, encrypted: f.encrypted, corrected: res.corrected };
+    if (f.version !== VERSION || f.profileId !== profile.id || length === 0 || length > profile.maxBytes) continue;
+    return { length, encrypted: f.encrypted, kind: f.kind, corrected: res.corrected };
   }
   return null;
 }
@@ -133,7 +137,9 @@ export function decodePayload(coded, conf, length, profile) {
   });
   if (candidates.some((c) => c.length === 0)) return { ok: false, reason: 'rs' };
 
+  let tries = 0;
   for (const combo of cartesian(candidates)) {
+    if (++tries > 256) break; // çok bloklu pakette birleşim sayısı patlamasın
     const data = new Uint8Array(layout.dataLen);
     let offset = 0;
     for (const res of combo) {

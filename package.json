@@ -1,7 +1,12 @@
 {
   "name": "sonik",
-  "version": "1.0.0",
-  "description": "Tarayıcıda çalışan akustik modem: metni sese çevirir, mikrofondan dinleyip çözer.",
+  "version": "2.0.0",
+  "description": "Tarayıcıda çalışan akustik modem: metni, görseli ya da dosyayı sese çevirir, mikrofondan dinleyip çözer.",
+  "homepage": "https://sonik.perinet.org",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elestirmen/sonic.git"
+  },
   "private": true,
   "type": "module",
   "scripts": {

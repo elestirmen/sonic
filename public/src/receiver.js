@@ -1,75 +1,31 @@
 // Alıcı tarafı: parça parça gelen ses → senkron adayları → paket çözücüleri.
 // Aynı kod mikrofon akışında da, WAV dosyasında da, Node testlerinde de çalışır.
 
-import { PROFILES, VALUES_PER_TONE, supportsProfile, toneFrequency } from './profiles.js';
+import { PROFILES, supportsProfile, symbolDuration } from './profiles.js';
 import { SampleStore } from './dsp/store.js';
 import { ChirpDetector } from './dsp/sync.js';
-import { goertzelCoeff, hann, tonePowers } from './dsp/filters.js';
-import { HEADER_BYTES, decodeHeader, decodePayload, nibblesToBytes, payloadLayout } from './codec/framing.js';
+import {
+  HEADER_BYTES,
+  HEADER_NIBBLES,
+  WEAK_DB,
+  decodeHeader,
+  decodePayload,
+  nibblesToBytes,
+  payloadLayout,
+} from './codec/framing.js';
+import { MfskDemod, MfskReader } from './mod/mfsk.js';
+import { OfdmDemod } from './mod/ofdm.js';
 
 const STORE_SECONDS = 12;
-const WEAK_DB = 3;
-
-/** Bir profilin sembol penceresini okuyup Goertzel ile ton kararı verir. */
-class SymbolReader {
-  constructor(profile, fs) {
-    this.profile = profile;
-    this.fs = fs;
-    this.winN = Math.round(profile.windowDur * fs);
-    this.skipN = Math.round(profile.skipDur * fs);
-    this.window = hann(this.winN);
-    this.buf = new Float32Array(this.winN);
-    this.x = new Float64Array(this.winN);
-    this.powers = new Float64Array(VALUES_PER_TONE);
-    this.coeffs = [];
-    for (let s = 0; s < profile.sets; s++) {
-      const perChannel = [];
-      for (let c = 0; c < profile.channels; c++) {
-        const k = new Float64Array(VALUES_PER_TONE);
-        for (let v = 0; v < VALUES_PER_TONE; v++) k[v] = goertzelCoeff(toneFrequency(profile, c, s, v), fs);
-        perChannel.push(k);
-      }
-      this.coeffs.push(perChannel);
-    }
-  }
-
-  windowEnd(dataStart, j) {
-    return dataStart + Math.round(j * this.profile.symbolDur * this.fs) + this.skipN + this.winN;
-  }
-
-  /** j. sembolün kanal başına kararı: değer, marj (en iyi / ikinci, dB) ve SNR (dB). */
-  read(store, dataStart, j) {
-    if (!store.read(this.windowEnd(dataStart, j) - this.winN, this.buf)) return null;
-    for (let i = 0; i < this.winN; i++) this.x[i] = this.buf[i] * this.window[i];
-    const set = j % this.profile.sets;
-    const out = [];
-    for (let c = 0; c < this.profile.channels; c++) {
-      const p = tonePowers(this.x, this.coeffs[set][c], this.powers);
-      let best = 0;
-      for (let v = 1; v < VALUES_PER_TONE; v++) if (p[v] > p[best]) best = v;
-      const others = [];
-      for (let v = 0; v < VALUES_PER_TONE; v++) if (v !== best) others.push(p[v]);
-      others.sort((a, b) => b - a);
-      const tiny = 1e-20;
-      out.push({
-        value: best,
-        marginDb: 10 * Math.log10((p[best] + tiny) / (others[0] + tiny)),
-        snrDb: 10 * Math.log10((p[best] + tiny) / (others[others.length >> 1] + tiny)),
-      });
-    }
-    return out;
-  }
-}
 
 /** Tek bir senkron adayından başlayıp paketi çözmeye çalışır. */
 class PacketDecoder {
-  constructor(reader, sync, fs) {
-    const p = reader.profile;
-    this.reader = reader;
-    this.profile = p;
+  constructor(profile, sync, fs, reader) {
+    this.profile = profile;
     this.sync = sync;
-    this.dataStart = sync.pos + Math.round((p.chirp.dur + p.gapDur) * fs);
-    this.headerSymbols = (HEADER_BYTES * 2) / p.channels;
+    const offset = (profile.chirp.dur + profile.gapDur) * fs;
+    this.demod =
+      profile.mod === 'ofdm' ? new OfdmDemod(profile, fs, sync.pos + offset) : new MfskDemod(reader, sync.pos + Math.round(offset));
     this.j = 0;
     this.nibbles = [];
     this.margins = [];
@@ -80,39 +36,44 @@ class PacketDecoder {
   }
 
   step(store, rx) {
-    while (!this.done && store.end >= this.reader.windowEnd(this.dataStart, this.j)) {
-      const res = this.reader.read(store, this.dataStart, this.j);
+    while (!this.done && store.end >= this.demod.windowEnd(this.j)) {
+      const res = this.demod.read(store, this.j);
       if (!res) {
         this.finish(rx, { ok: false, reason: 'buffer' });
         return;
       }
-      for (const r of res) {
-        this.nibbles.push(r.value);
-        this.margins.push(r.marginDb);
-        this.snrs.push(r.snrDb);
+      for (let i = 0; i < res.values.length; i++) {
+        this.nibbles.push(res.values[i]);
+        this.margins.push(res.margins[i]);
+        this.snrs.push(res.snrs[i]);
       }
       this.j++;
-      if (!this.header && this.j === this.headerSymbols) {
+      if (!this.header) {
+        if (this.nibbles.length < HEADER_NIBBLES) continue;
         const { bytes, conf } = nibblesToBytes(this.nibbles, this.margins, HEADER_BYTES);
-        const header = decodeHeader(bytes, conf, this.profile.id);
+        const header = decodeHeader(bytes, conf, this.profile);
         if (!header) {
           this.done = true; // sahte senkron; sessizce ele
           return;
         }
         this.header = header;
         this.layout = payloadLayout(header.length, this.profile);
+        this.payloadStart = this.demod.payloadStart;
         this.payloadNibbles = this.layout.total * 2;
-        this.totalSymbols = this.headerSymbols + Math.ceil(this.payloadNibbles / this.profile.channels);
         rx._validated(this);
-      } else if (this.header) {
+      } else {
         rx._progress(this);
-        if (this.j === this.totalSymbols) this.finish(rx, this.decode());
+        if (this.nibbles.length >= this.payloadStart + this.payloadNibbles) this.finish(rx, this.decode());
       }
     }
   }
 
+  get received() {
+    return Math.max(0, this.nibbles.length - this.payloadStart);
+  }
+
   decode() {
-    const start = HEADER_BYTES * 2;
+    const start = this.payloadStart;
     const end = start + this.payloadNibbles;
     const { bytes, conf } = nibblesToBytes(this.nibbles.slice(start, end), this.margins.slice(start, end), this.layout.total);
     return decodePayload(bytes, conf, this.header.length, this.profile);
@@ -137,10 +98,11 @@ class PacketDecoder {
 
 /**
  * Olaylar (onEvent):
- *   { type: 'sync', id, profile, length, encrypted, symbols, duration, rho }
+ *   { type: 'sync', id, profile, length, encrypted, kind, duration, rho }
  *   { type: 'progress', id, profile, done, total }
- *   { type: 'message', id, profile, bytes, encrypted, stats }
- *   { type: 'fail', id, profile, reason, stats }
+ *   { type: 'message', id, profile, bytes, encrypted, kind, stats }
+ *   { type: 'fail', id, profile, kind, reason, stats }
+ * kind: 0 metin, 1 nesne parçası (bkz. transfer.js).
  */
 export class Receiver {
   constructor(fs, { profiles = PROFILES, onEvent = () => {} } = {}) {
@@ -151,7 +113,7 @@ export class Receiver {
     this.profiles = profiles;
     this.store = new SampleStore(Math.ceil(STORE_SECONDS * fs));
     this.detector = new ChirpDetector(fs, profiles, this.store);
-    this.readers = new Map(profiles.map((p) => [p.key, new SymbolReader(p, fs)]));
+    this.readers = new Map(profiles.filter((p) => p.mod !== 'ofdm').map((p) => [p.key, new MfskReader(p, fs)]));
     this.decoders = [];
     this.groups = [];
     this.nextId = 1;
@@ -161,7 +123,7 @@ export class Receiver {
     this.store.push(samples);
     this.detector.push(samples);
     for (const s of this.detector.process()) {
-      this.decoders.push(new PacketDecoder(this.readers.get(s.profile.key), s, this.fs));
+      for (const p of s.profiles) this.decoders.push(new PacketDecoder(p, s, this.fs, this.readers.get(p.key)));
     }
     for (const d of this.decoders) d.step(this.store, this);
     this.decoders = this.decoders.filter((d) => !d.done);
@@ -190,8 +152,8 @@ export class Receiver {
         profile: p.key,
         length: dec.header.length,
         encrypted: dec.header.encrypted,
-        symbols: dec.totalSymbols - dec.headerSymbols,
-        duration: (dec.totalSymbols - dec.headerSymbols) * p.symbolDur,
+        kind: dec.header.kind,
+        duration: estimatePayloadSeconds(dec),
         rho: dec.sync.rho,
       });
     }
@@ -206,8 +168,8 @@ export class Receiver {
       type: 'progress',
       id: g.id,
       profile: dec.profile.key,
-      done: dec.j - dec.headerSymbols,
-      total: dec.totalSymbols - dec.headerSymbols,
+      done: Math.min(dec.received, dec.payloadNibbles),
+      total: dec.payloadNibbles,
     });
   }
 
@@ -224,11 +186,19 @@ export class Receiver {
         profile: dec.profile.key,
         bytes: res.message,
         encrypted: dec.header.encrypted,
+        kind: dec.header.kind,
         stats: dec.stats(res),
       });
     } else if (g.pending === 0) {
       g.closed = true;
-      this.onEvent({ type: 'fail', id: g.id, profile: dec.profile.key, reason: res.reason, stats: dec.stats(res) });
+      this.onEvent({
+        type: 'fail',
+        id: g.id,
+        profile: dec.profile.key,
+        kind: dec.header.kind,
+        reason: res.reason,
+        stats: dec.stats(res),
+      });
     } else if (g.primary === dec) {
       g.primary = this.decoders.find((d) => d.group === g && !d.done) ?? g.primary;
     }
@@ -236,4 +206,11 @@ export class Receiver {
     const horizon = this.store.end - 30 * this.fs;
     this.groups = this.groups.filter((x) => !x.closed || x.pos > horizon);
   }
+}
+
+/** Başlıktan sonra verinin sürmesi beklenen süre (s). */
+function estimatePayloadSeconds(dec) {
+  const p = dec.profile;
+  const perSymbol = p.mod === 'ofdm' ? dec.demod.info.nibbles : p.channels;
+  return Math.ceil(dec.payloadNibbles / perSymbol) * symbolDuration(p);
 }

@@ -1,91 +1,98 @@
-// Verici tarafı: mesaj baytları → paket sembolleri → ses dalga formu.
+// Verici tarafı: mesaj baytları → paket (başlık + veri nibble'ları) → ses dalga formu.
 
-import { PRE_SILENCE, POST_SILENCE, getProfile, supportsProfile, toneFrequency } from './profiles.js';
+import { PRE_SILENCE, POST_SILENCE, getProfile, supportsProfile, symbolDuration } from './profiles.js';
 import { chirpWaveform } from './dsp/chirp.js';
-import {
-  HEADER_BYTES,
-  MAX_MESSAGE_BYTES,
-  bytesToNibbles,
-  encodeHeader,
-  encodePayload,
-  makeFlags,
-  payloadLayout,
-} from './codec/framing.js';
+import { KIND_TEXT, bytesToNibbles, encodeHeader, encodePayload, makeFlags, payloadLayout } from './codec/framing.js';
+import { mfskSymbolCount, renderMfsk } from './mod/mfsk.js';
+import { ofdmSymbolCount, renderOfdm } from './mod/ofdm.js';
 
 export { PROFILES, getProfile, supportsProfile } from './profiles.js';
 export { Receiver } from './receiver.js';
-export { MAX_MESSAGE_BYTES } from './codec/framing.js';
 
-/** Paketi sembollere böler: her sembol, kanal başına bir 4-bitlik değer taşır. */
-export function buildPacket(message, profile, { encrypted = false } = {}) {
+/** Çok paketli akışta paketler arasındaki sessizlik (s). */
+export const PACKET_GAP = 0.06;
+
+/** Paketin başlık ve veri nibble'ları. */
+export function buildPacket(message, profile, { encrypted = false, kind = KIND_TEXT } = {}) {
   if (message.length === 0) throw new RangeError('mesaj boş');
-  if (message.length > MAX_MESSAGE_BYTES) throw new RangeError(`mesaj en çok ${MAX_MESSAGE_BYTES} bayt olabilir`);
-  const ch = profile.channels;
-  const headerNibbles = bytesToNibbles(encodeHeader(message.length, makeFlags(profile.id, encrypted)));
-  const payloadNibbles = bytesToNibbles(encodePayload(message, profile));
-  const symbols = [];
-  for (let i = 0; i < headerNibbles.length; i += ch) symbols.push(Array.from(headerNibbles.subarray(i, i + ch)));
-  for (let i = 0; i < payloadNibbles.length; i += ch) {
-    const sym = [];
-    for (let c = 0; c < ch; c++) sym.push(payloadNibbles[i + c] ?? 0);
-    symbols.push(sym);
-  }
-  return { symbols, headerSymbols: headerNibbles.length / ch };
+  if (message.length > profile.maxBytes) throw new RangeError(`paket en çok ${profile.maxBytes} bayt olabilir`);
+  return {
+    header: bytesToNibbles(encodeHeader(message.length, makeFlags(profile.id, { encrypted, kind }))),
+    payload: bytesToNibbles(encodePayload(message, profile)),
+  };
 }
 
 export function symbolCount(byteLength, profile) {
-  const ch = profile.channels;
-  return (HEADER_BYTES * 2) / ch + Math.ceil((payloadLayout(byteLength, profile).total * 2) / ch);
+  const nibbles = payloadLayout(byteLength, profile).total * 2;
+  return profile.mod === 'ofdm' ? ofdmSymbolCount(profile, nibbles) : mfskSymbolCount(profile, nibbles);
+}
+
+/** Tek paketin chirp başından son sembolün sonuna kadar süresi (s). */
+export function burstDuration(byteLength, profile) {
+  return profile.chirp.dur + profile.gapDur + symbolCount(byteLength, profile) * symbolDuration(profile);
 }
 
 /** Paket süresi (saniye), sessiz kenarlar dahil. */
 export function estimateDuration(byteLength, profile) {
-  return (
-    PRE_SILENCE +
-    profile.chirp.dur +
-    profile.gapDur +
-    symbolCount(byteLength, profile) * profile.symbolDur +
-    POST_SILENCE
-  );
+  return PRE_SILENCE + burstDuration(byteLength, profile) + POST_SILENCE;
+}
+
+/** Ardışık paketlerin toplam süresi (s): tek sessiz baş/son, aralarda PACKET_GAP. */
+export function estimateStreamDuration(byteLengths, profile) {
+  let t = PRE_SILENCE + POST_SILENCE + PACKET_GAP * Math.max(0, byteLengths.length - 1);
+  for (const n of byteLengths) t += burstDuration(n, profile);
+  return t;
+}
+
+/** Paketi out'a yazar: chirpStart örneğinde chirp, ardından boşluk ve semboller. */
+function renderPacket(out, chirpStart, packet, profile, fs, amplitude) {
+  out.set(chirpWaveform(profile.chirp, fs, amplitude), chirpStart);
+  const start = chirpStart + (profile.chirp.dur + profile.gapDur) * fs;
+  const render = profile.mod === 'ofdm' ? renderOfdm : renderMfsk;
+  render(out, start, packet.header, packet.payload, profile, fs, amplitude);
 }
 
 export function synthesize(packet, profile, fs, amplitude = 0.8) {
-  const chirpStart = Math.round(PRE_SILENCE * fs);
-  const dataOffset = profile.chirp.dur + profile.gapDur;
-  const nSym = packet.symbols.length;
-  const out = new Float32Array(Math.round((PRE_SILENCE + dataOffset + nSym * profile.symbolDur + POST_SILENCE) * fs));
-  out.set(chirpWaveform(profile.chirp, fs, amplitude), chirpStart);
+  return synthesizeStream([packet], profile, fs, amplitude);
+}
 
-  const a = amplitude / profile.channels;
-  const rampN = Math.max(1, Math.round(profile.rampDur * fs));
-  for (let j = 0; j < nSym; j++) {
-    const s0 = chirpStart + Math.round((dataOffset + j * profile.symbolDur) * fs);
-    const s1 = chirpStart + Math.round((dataOffset + (j + 1) * profile.symbolDur) * fs);
-    const len = s1 - s0;
-    const env = new Float32Array(len);
-    for (let i = 0; i < len; i++) {
-      // yükseltilmiş kosinüs kenarlar: tık sesi ve spektral saçılma olmasın
-      if (i < rampN) env[i] = 0.5 - 0.5 * Math.cos((Math.PI * i) / rampN);
-      else if (i >= len - rampN) env[i] = 0.5 - 0.5 * Math.cos((Math.PI * (len - 1 - i)) / rampN);
-      else env[i] = 1;
-    }
-    const set = j % profile.sets;
-    for (let c = 0; c < profile.channels; c++) {
-      const w = (2 * Math.PI * toneFrequency(profile, c, set, packet.symbols[j][c])) / fs;
-      const phase = (c * Math.PI) / 2;
-      for (let i = 0; i < len; i++) out[s0 + i] += a * env[i] * Math.sin(w * i + phase);
-    }
-  }
+/** Paketleri tek bir ses akışında arka arkaya dizer. */
+export function synthesizeStream(packets, profile, fs, amplitude = 0.8) {
+  const durations = packets.map((pk) => {
+    const nibbles = pk.payload.length;
+    const n = profile.mod === 'ofdm' ? ofdmSymbolCount(profile, nibbles) : mfskSymbolCount(profile, nibbles);
+    return profile.chirp.dur + profile.gapDur + n * symbolDuration(profile);
+  });
+  const total = PRE_SILENCE + POST_SILENCE + PACKET_GAP * (packets.length - 1) + durations.reduce((s, d) => s + d, 0);
+  const out = new Float32Array(Math.round(total * fs));
+  let t = PRE_SILENCE;
+  packets.forEach((pk, i) => {
+    renderPacket(out, Math.round(t * fs), pk, profile, fs, amplitude);
+    t += durations[i] + PACKET_GAP;
+  });
   return out;
 }
 
-/** Tek adımda: bayt dizisi → ses örnekleri. */
-export function encodeMessage(message, profileKey, fs, { amplitude = 0.8, encrypted = false } = {}) {
-  const profile = getProfile(profileKey);
+function checkRate(profile, fs) {
   if (!supportsProfile(profile, fs)) {
     throw new RangeError(`${fs} Hz örnekleme hızı ${profile.name} profili için yetersiz`);
   }
-  const packet = buildPacket(message, profile, { encrypted });
+}
+
+/** Tek adımda: bayt dizisi → ses örnekleri. */
+export function encodeMessage(message, profileKey, fs, { amplitude = 0.8, encrypted = false, kind = KIND_TEXT } = {}) {
+  const profile = getProfile(profileKey);
+  checkRate(profile, fs);
+  const packet = buildPacket(message, profile, { encrypted, kind });
   const samples = synthesize(packet, profile, fs, amplitude);
-  return { samples, duration: samples.length / fs, symbols: packet.symbols.length };
+  return { samples, duration: samples.length / fs, packets: 1 };
+}
+
+/** Birden çok paket (ör. bir görselin parçaları) → tek ses akışı. */
+export function encodePackets(payloads, profileKey, fs, { amplitude = 0.8, encrypted = false, kind = KIND_TEXT } = {}) {
+  const profile = getProfile(profileKey);
+  checkRate(profile, fs);
+  const packets = payloads.map((m) => buildPacket(m, profile, { encrypted, kind }));
+  const samples = synthesizeStream(packets, profile, fs, amplitude);
+  return { samples, duration: samples.length / fs, packets: packets.length };
 }

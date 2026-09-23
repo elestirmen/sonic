@@ -200,8 +200,22 @@ output {
   gap: 6px;
 }
 
+.segmented.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.segmented.five {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+@media (max-width: 480px) {
+  .segmented.five {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 420px) {
-  .segmented {
+  .segmented:not(.three):not(.five) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -230,6 +244,131 @@ output {
   border-color: var(--accent);
   background: var(--accent-soft);
   box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.segmented button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 14px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.tabs button {
+  flex: 1;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.tabs button[aria-selected='true'] {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgb(15 23 42 / 12%);
+}
+
+.drop {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 16px 12px;
+  border: 1.5px dashed var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+  text-align: center;
+}
+
+.drop.over {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.drop-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .drop .camera {
+    display: none; /* kamera yakalama yalnız dokunmatik cihazlarda anlamlı */
+  }
+}
+
+.attachment {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.attachment img {
+  width: 72px;
+  height: 72px;
+  flex: none;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.attachment-body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.attachment-body strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-estimate {
+  display: block;
+  margin: -4px 0 14px;
+}
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.check input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+
+.check small {
+  color: var(--muted);
+}
+
+.play-label {
+  min-width: 4.5em;
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .lock {
@@ -461,6 +600,27 @@ output {
   background: var(--danger);
 }
 
+.transfer {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--warn);
+  border-radius: 12px;
+  background: var(--warn-soft);
+}
+
+.transfer-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.transfer .bar > div {
+  background: var(--warn);
+}
+
 .last {
   margin-top: 14px;
   padding: 12px 14px;
@@ -479,6 +639,25 @@ output {
   font-weight: 600;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.last-text.file-name {
+  font-size: 0.98rem;
+}
+
+.last-image {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  margin: 0 auto 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  image-rendering: auto;
+}
+
+.last-actions {
+  display: flex;
+  gap: 4px;
 }
 
 .last-foot {
@@ -547,6 +726,21 @@ output {
   margin-top: 4px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.item.has-file .item-text {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: normal;
+}
+
+.thumb {
+  max-width: 120px;
+  max-height: 90px;
+  flex: none;
+  border-radius: 6px;
+  background: var(--surface);
 }
 
 .item.locked .item-text {

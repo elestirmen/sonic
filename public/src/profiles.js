@@ -2,45 +2,70 @@
 // cihazın kendi örnekleme hızına göre hesaplanır, bu yüzden 44.1 kHz'lik
 // bir verici ile 48 kHz'lik bir alıcı sorunsuz konuşur.
 //
-// Ton ızgarası — kanal c, küme s, değer v (0–15):
+// İki kipleme var:
+//
+// MFSK (mod: 'mfsk') — ton ızgarası, kanal c, küme s, değer v (0–15):
 //   f = fStart + toneSpacing · (c · sets · 16 + v · sets + s)
 // Ardışık semboller farklı kümeden ton kullanır (s = sembol no mod sets);
 // böylece bir önceki sembolün oda yankısı, çözülen kümeye düşmez. Aynı küme
 // ancak (sets − 1) · symbolDur + skipDur sonra yeniden duyulur; yankılı odada
 // belirleyici olan bu "yankı yaşı"dır (simülasyonda ~190 ms, RT60 1 s'lik
 // salonda bile yetti; ~60 ms'de uzak mesafede paketlerin çoğu kayboluyordu).
-//
 // Pencere (windowDur) Hann ile çarpılır; toneSpacing ≥ 2 / windowDur olduğu
 // sürece komşu tonlar pencerenin sıfırlarına denk gelir ve birbirine sızmaz.
+//
+// OFDM (mod: 'ofdm', bkz. mod/ofdm.js) — fLow–fHigh arasında spacing aralıklı
+// alt taşıyıcılar, her biri diferansiyel PSK ile psk = 4 → 2 bit, 2 → 1 bit.
+// Sembol = cpDur koruma + 1/spacing. Bant verimi MFSK'nin onlarca katı, ama oda
+// yankısı koruma aralığını aşınca sembolleri karıştırır: yalnız yakın mesafe.
+
+import { HEADER_NIBBLES } from './codec/framing.js';
 
 export const PRE_SILENCE = 0.15; // bazı hoparlör yükselteçleri ilk anları yutar
 export const POST_SILENCE = 0.1;
 export const VALUES_PER_TONE = 16;
 
+export const BANDS = [
+  { key: 'std', name: 'Standart', hint: 'en geniş cihaz desteği' },
+  { key: 'high', name: 'Yüksek', hint: 'daha az duyulur; konuşma ve müzikten az etkilenir' },
+  { key: 'ultra', name: 'Ultrasonik', hint: 'neredeyse duyulmaz; hoparlör/mikrofon desteği değişir' },
+];
+
+export const SPEEDS = [
+  { key: 'saglam', name: 'Sağlam' },
+  { key: 'normal', name: 'Normal' },
+  { key: 'hizli', name: 'Hızlı' },
+  { key: 'cok-hizli', name: 'Çok hızlı' },
+  { key: 'turbo', name: 'Turbo' },
+];
+
+// OFDM ortakları: 10 ms'lik yararlı bölüm (100 Hz aralık) + 3,3 ms koruma. Kısa sembol,
+// sembolün kendi yankısının yol açtığı taşıyıcılar arası sızmayı azaltır (20 ms'de
+// oda koşulunda hata oranı belirgin yüksekti); yankıya asıl dayanıklılığı hop verir.
+const OFDM = { mod: 'ofdm', spacing: 100, cpDur: 1 / 300, rollDur: 1 / 1500, gapDur: 0.03, maxBytes: 1024 };
+
+// Senkron chirp'leri. Aynı bantta benzer profiller bir chirp'i paylaşır: alıcı her chirp
+// için ayrı bir FFT ilintisi yürütür, dinlerken işlemci yükünün çoğu buradan gelir. Hangi
+// profil olduğu başlıktaki profil numarasından anlaşılır (paylaşan her profil denenir).
+const CHIRPS = {
+  saglam: { from: 3650, to: 1450, dur: 0.2 }, // aşağı süpürme, uzun: uzak mesafe
+  std: { from: 1500, to: 9000, dur: 0.15 },
+  stdOfdm: { from: 10200, to: 1800, dur: 0.1 },
+  high: { from: 11300, to: 17200, dur: 0.15 },
+  highOfdm: { from: 17200, to: 11300, dur: 0.1 },
+  ultra: { from: 17300, to: 20400, dur: 0.15 },
+  ultraOfdm: { from: 20400, to: 17400, dur: 0.1 },
+};
+
 export const PROFILES = [
-  {
-    id: 0,
-    key: 'normal',
-    name: 'Normal',
-    summary: '1–3 m; yankılı odada da güvenilir',
-    fStart: 2000,
-    toneSpacing: 40,
-    channels: 2,
-    sets: 4,
-    symbolDur: 0.06,
-    skipDur: 0.009,
-    windowDur: 0.05,
-    rampDur: 0.005,
-    chirp: { from: 1850, to: 7300, dur: 0.15 },
-    gapDur: 0.05,
-    fecRatio: 0.3,
-    fecMin: 8,
-  },
   {
     id: 1,
     key: 'saglam',
     name: 'Sağlam',
+    band: 'std',
+    speed: 'saglam',
     summary: 'uzak mesafe, gürültülü ve çok yankılı ortam; yavaş',
+    mod: 'mfsk',
     fStart: 1600,
     toneSpacing: 40,
     channels: 1,
@@ -49,16 +74,44 @@ export const PROFILES = [
     skipDur: 0.02,
     windowDur: 0.075,
     rampDur: 0.008,
-    chirp: { from: 3650, to: 1450, dur: 0.2 }, // aşağı süpürme: diğer profillerden ayırt edilir
+    chirp: CHIRPS.saglam,
     gapDur: 0.06,
     fecRatio: 0.5,
     fecMin: 10,
+    maxBytes: 255,
+    chunkBytes: 48,
+  },
+  {
+    id: 0,
+    key: 'normal',
+    name: 'Normal',
+    band: 'std',
+    speed: 'normal',
+    summary: '1–3 m; yankılı odada da güvenilir',
+    mod: 'mfsk',
+    fStart: 2000,
+    toneSpacing: 40,
+    channels: 2,
+    sets: 4,
+    symbolDur: 0.06,
+    skipDur: 0.009,
+    windowDur: 0.05,
+    rampDur: 0.005,
+    chirp: CHIRPS.std,
+    gapDur: 0.05,
+    fecRatio: 0.3,
+    fecMin: 8,
+    maxBytes: 255,
+    chunkBytes: 64,
   },
   {
     id: 2,
     key: 'hizli',
     name: 'Hızlı',
+    band: 'std',
+    speed: 'hizli',
     summary: 'yakın mesafe (≤ 1 m); Normal’in iki katı hız',
+    mod: 'mfsk',
     fStart: 1500,
     toneSpacing: 40,
     channels: 4,
@@ -67,16 +120,135 @@ export const PROFILES = [
     skipDur: 0.007,
     windowDur: 0.05,
     rampDur: 0.004,
-    chirp: { from: 1400, to: 9400, dur: 0.1 },
+    chirp: CHIRPS.std,
     gapDur: 0.04,
     fecRatio: 0.25,
     fecMin: 8,
+    maxBytes: 255,
+    chunkBytes: 128,
+  },
+  {
+    ...OFDM,
+    id: 10,
+    key: 'cok-hizli',
+    name: 'Çok hızlı',
+    band: 'std',
+    speed: 'cok-hizli',
+    summary: 'oda içinde ≤ 1 m; görsel ve dosya için',
+    fLow: 2000,
+    fHigh: 9950,
+    psk: 4,
+    hop: 8,
+    chirp: CHIRPS.stdOfdm,
+    fecRatio: 0.3,
+    fecMin: 8,
+    chunkBytes: 480,
+  },
+  {
+    ...OFDM,
+    id: 4,
+    key: 'turbo',
+    name: 'Turbo',
+    band: 'std',
+    speed: 'turbo',
+    summary: 'cihazlar yakın (≤ 50 cm); en hızlısı',
+    fLow: 2000,
+    fHigh: 9950,
+    psk: 4,
+    hop: 3, // 2 blok 750 B/sn verir ama 50 cm'de ve 5 dB SNR'de paketlerin yarısı gidiyordu
+    chirp: CHIRPS.stdOfdm,
+    fecRatio: 0.3,
+    fecMin: 8,
+    chunkBytes: 960,
+  },
+  {
+    id: 5,
+    key: 'yuksek',
+    name: 'Yüksek',
+    band: 'high',
+    speed: 'normal',
+    summary: '1–2 m; Normal’in 11–17 kHz’e taşınmışı',
+    mod: 'mfsk',
+    fStart: 11600,
+    toneSpacing: 40,
+    channels: 2,
+    sets: 4,
+    symbolDur: 0.06,
+    skipDur: 0.009,
+    windowDur: 0.05,
+    rampDur: 0.005,
+    chirp: CHIRPS.high,
+    gapDur: 0.05,
+    fecRatio: 0.3,
+    fecMin: 8,
+    maxBytes: 255,
+    chunkBytes: 64,
+  },
+  {
+    id: 6,
+    key: 'yuksek-hizli',
+    name: 'Yüksek · Hızlı',
+    band: 'high',
+    speed: 'hizli',
+    summary: 'yakın mesafe (≤ 1 m)',
+    mod: 'mfsk',
+    fStart: 11400,
+    toneSpacing: 40,
+    channels: 3,
+    sets: 3,
+    symbolDur: 0.058,
+    skipDur: 0.007,
+    windowDur: 0.05,
+    rampDur: 0.004,
+    chirp: CHIRPS.high,
+    gapDur: 0.04,
+    fecRatio: 0.25,
+    fecMin: 8,
+    maxBytes: 255,
+    chunkBytes: 96,
+  },
+  {
+    ...OFDM,
+    id: 11,
+    key: 'yuksek-cok-hizli',
+    name: 'Yüksek · Çok hızlı',
+    band: 'high',
+    speed: 'cok-hizli',
+    summary: 'oda içinde ≤ 1 m',
+    fLow: 11500,
+    fHigh: 16950,
+    psk: 2, // dar bantta DQPSK'nin τ belirsizliği hop 6'da saat farkını karşılamıyor
+    hop: 6,
+    chirp: CHIRPS.highOfdm,
+    fecRatio: 0.3,
+    fecMin: 8,
+    chunkBytes: 192,
+  },
+  {
+    ...OFDM,
+    id: 7,
+    key: 'yuksek-turbo',
+    name: 'Yüksek · Turbo',
+    band: 'high',
+    speed: 'turbo',
+    summary: 'cihazlar yakın (≤ 50 cm)',
+    fLow: 11500,
+    fHigh: 16950,
+    psk: 4,
+    hop: 3,
+    chirp: CHIRPS.highOfdm,
+    fecRatio: 0.3,
+    fecMin: 8,
+    chunkBytes: 640,
   },
   {
     id: 3,
     key: 'ultrasonik',
     name: 'Ultrasonik',
+    band: 'ultra',
+    speed: 'normal',
     summary: 'neredeyse duyulmaz; cihaz desteği değişir',
+    mod: 'mfsk',
     fStart: 17500,
     toneSpacing: 45,
     channels: 1,
@@ -85,10 +257,52 @@ export const PROFILES = [
     skipDur: 0.011,
     windowDur: 0.045,
     rampDur: 0.01,
-    chirp: { from: 17300, to: 19800, dur: 0.15 },
+    chirp: CHIRPS.ultra,
     gapDur: 0.05,
     fecRatio: 0.3,
     fecMin: 8,
+    maxBytes: 255,
+    chunkBytes: 32,
+  },
+  {
+    id: 8,
+    key: 'ultra-hizli',
+    name: 'Ultrasonik · Hızlı',
+    band: 'ultra',
+    speed: 'hizli',
+    summary: 'yakın mesafe (≤ 1 m); neredeyse duyulmaz',
+    mod: 'mfsk',
+    fStart: 17500,
+    toneSpacing: 45,
+    channels: 2,
+    sets: 2,
+    symbolDur: 0.057,
+    skipDur: 0.011,
+    windowDur: 0.045,
+    rampDur: 0.01,
+    chirp: CHIRPS.ultra,
+    gapDur: 0.05,
+    fecRatio: 0.3,
+    fecMin: 8,
+    maxBytes: 255,
+    chunkBytes: 64,
+  },
+  {
+    ...OFDM,
+    id: 9,
+    key: 'ultra-turbo',
+    name: 'Ultrasonik · Turbo',
+    band: 'ultra',
+    speed: 'turbo',
+    summary: 'cihazlar yan yana (≤ 30 cm); neredeyse duyulmaz',
+    fLow: 17600,
+    fHigh: 20350,
+    psk: 4,
+    hop: 2,
+    chirp: CHIRPS.ultraOfdm,
+    fecRatio: 0.3,
+    fecMin: 8,
+    chunkBytes: 320,
   },
 ];
 
@@ -100,16 +314,85 @@ export function getProfile(key) {
   return p;
 }
 
+export function findProfile(band, speed) {
+  return PROFILES.find((p) => p.band === band && p.speed === speed) ?? null;
+}
+
 export function toneFrequency(p, channel, set, value) {
   return p.fStart + p.toneSpacing * (channel * p.sets * VALUES_PER_TONE + value * p.sets + set);
 }
 
+const ofdmCache = new WeakMap();
+
+/**
+ * Blokların çalma sırası: ardışık semboller mümkünse komşu olmayan bloklara düşsün (bir
+ * önceki sembolün yankısı ve kesik yansımaları, çözülen bloğa en az bir blok uzaktan
+ * sızar). Döngüsel sıra geri izlemeyle bulunur; 3 ve 4 blokta böyle bir sıra yoktur.
+ */
+function blockOrder(L) {
+  const order = [0];
+  const used = new Set(order);
+  const ok = (a, b) => Math.abs(a - b) > 1;
+  const search = () => {
+    if (order.length === L) return ok(order[L - 1], order[0]);
+    for (let b = 1; b < L; b++) {
+      if (used.has(b) || !ok(order[order.length - 1], b)) continue;
+      order.push(b);
+      used.add(b);
+      if (search()) return true;
+      order.pop();
+      used.delete(b);
+    }
+    return false;
+  };
+  return L > 4 && search() ? order : Array.from({ length: L }, (_, i) => (L === 3 || L === 4 ? [0, 2, 1, 3][i] : i));
+}
+
+/**
+ * OFDM taşıyıcıları ve sembol düzeni (profil başına bir kez hesaplanır).
+ * hop > 1 ise taşıyıcılar hop bitişik bloğa bölünür ve her sembolde yalnız bir blok
+ * çalar; bir taşıyıcı ancak hop sembol sonra yeniden duyulur (MFSK'deki ton kümeleri gibi).
+ */
+export function ofdmInfo(p) {
+  let info = ofdmCache.get(p);
+  if (!info) {
+    const bits = Math.log2(p.psk);
+    const per = 4 / bits; // bir nibble'ı taşıyan taşıyıcı sayısı
+    const L = p.hop ?? 1;
+    const k0 = Math.ceil(p.fLow / p.spacing - 1e-9);
+    const k1 = Math.floor(p.fHigh / p.spacing + 1e-9);
+    const Kb = Math.floor((k1 - k0 + 1) / (L * per)) * per; // blok başına taşıyıcı
+    const K = Kb * L;
+    const freqs = Float64Array.from({ length: K }, (_, i) => (k0 + i) * p.spacing);
+    const Tu = 1 / p.spacing;
+    // Başlığın her birimi en az bir taşıyıcıya düşsün: gerekirse bloklar birkaç tur döner.
+    const headerSymbols = L * Math.ceil((HEADER_NIBBLES * per) / K);
+    info = { freqs, K, Kb, L, order: blockOrder(L), bits, per, nibbles: Kb / per, headerSymbols, Tu, Ts: Tu + p.cpDur };
+    ofdmCache.set(p, info);
+  }
+  return info;
+}
+
+/** Bir sembolün süresi (s). */
+export function symbolDuration(p) {
+  return p.mod === 'ofdm' ? ofdmInfo(p).Ts : p.symbolDur;
+}
+
 /** Profilin kapladığı frekans aralığı (spektrogram işaretleri ve süzgeçler için). */
 export function profileBand(p) {
-  const top = toneFrequency(p, p.channels - 1, p.sets - 1, VALUES_PER_TONE - 1);
+  let lo;
+  let hi;
+  if (p.mod === 'ofdm') {
+    const f = ofdmInfo(p).freqs;
+    lo = f[0];
+    hi = f[f.length - 1];
+  } else {
+    lo = p.fStart;
+    hi = toneFrequency(p, p.channels - 1, p.sets - 1, VALUES_PER_TONE - 1);
+  }
   return {
-    lo: Math.min(p.fStart, p.chirp.from, p.chirp.to),
-    hi: Math.max(top, p.chirp.from, p.chirp.to),
+    lo: Math.min(lo, p.chirp.from, p.chirp.to),
+    hi: Math.max(hi, p.chirp.from, p.chirp.to),
   };
 }
 
@@ -120,5 +403,9 @@ export function supportsProfile(profile, fs) {
 
 /** Ham bit hızı (bayt/sn), hata düzeltme payı hariç. */
 export function rawByteRate(p) {
+  if (p.mod === 'ofdm') {
+    const { Kb, bits, Ts } = ofdmInfo(p);
+    return (Kb * bits) / 8 / Ts;
+  }
   return (p.channels * 4) / 8 / p.symbolDur;
 }

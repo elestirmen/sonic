@@ -1,8 +1,12 @@
-// Arayüz: gönderme, dinleme, dosyadan çözme, simülasyon ve geçmiş.
-// Alınan metinler dışarıdan gelen güvenilmez veridir; DOM'a yalnız textContent ile yazılır.
+// Arayüz: gönderme (metin, görsel, dosya), dinleme, dosyadan çözme, simülasyon ve geçmiş.
+// Alınan içerik dışarıdan gelen güvenilmez veridir: metin DOM'a yalnız textContent ile
+// yazılır, görsel ancak imzası bilinen bir raster biçimse gösterilir, dosya yalnız indirilir.
 
-import { PROFILES, getProfile, profileBand, rawByteRate, supportsProfile } from './profiles.js';
-import { MAX_MESSAGE_BYTES, encodeMessage, estimateDuration } from './modem.js';
+import { BANDS, PROFILES, SPEEDS, findProfile, getProfile, profileBand, rawByteRate, supportsProfile } from './profiles.js';
+import { estimateDuration, estimateStreamDuration } from './modem.js';
+import { KIND_CHUNK, KIND_TEXT } from './codec/framing.js';
+import { ObjectAssembler, TEXT_MIME, makeChunks, maxContentBytes, packBody, planChunks, unpackBody } from './transfer.js';
+import { IMAGE_PRESETS, compressImage, loadImage, sniffImage } from './image.js';
 import { decodeWav, encodeWav } from './audio/wav.js';
 import { Spectrogram } from './ui/spectrogram.js';
 import { ENCRYPTION_OVERHEAD, decryptBytes, encryptBytes } from './crypto.js';
@@ -13,21 +17,44 @@ const num = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 });
 const HISTORY_KEY = 'sonik.history.v1';
 const PREFS_KEY = 'sonik.prefs.v1';
 const HISTORY_LIMIT = 60;
+const HISTORY_DATA_LIMIT = 64 * 1024; // geçmişte saklanacak en büyük dosya (bayt)
 const WAV_RATE = 48000;
+const MAX_SECONDS = 300; // daha uzun bir yayın telefonda yüzlerce MB ses belleği ister
+const MAX_FILE = Math.max(...PROFILES.map((p) => maxContentBytes(p.chunkBytes)));
 
 const ui = {
+  tabText: $('tab-text'),
+  tabFile: $('tab-file'),
+  paneText: $('pane-text'),
+  paneFile: $('pane-file'),
   message: $('message'),
+  textHint: $('text-hint'),
   byteCount: $('byte-count'),
   estimate: $('duration-estimate'),
-  picker: $('profile-picker'),
+  drop: $('drop'),
+  filePick: $('file-pick'),
+  cameraPick: $('camera-pick'),
+  attachment: $('attachment'),
+  attachmentPreview: $('attachment-preview'),
+  attachmentName: $('attachment-name'),
+  attachmentInfo: $('attachment-info'),
+  attachmentClear: $('attachment-clear'),
+  qualityField: $('quality-field'),
+  qualityPicker: $('quality-picker'),
+  fileEstimate: $('file-estimate'),
+  bandPicker: $('band-picker'),
+  speedPicker: $('speed-picker'),
   summary: $('profile-summary'),
   volume: $('volume'),
   volumeOut: $('volume-out'),
   password: $('password'),
   sendBtn: $('send-btn'),
   wavBtn: $('wav-btn'),
+  loopField: $('loop-field'),
+  loop: $('loop'),
   playback: $('playback'),
   playProgress: $('play-progress'),
+  playLabel: $('play-label'),
   stopBtn: $('stop-btn'),
   listenBtn: $('listen-btn'),
   status: $('status'),
@@ -38,10 +65,16 @@ const ui = {
   rangeBtn: $('range-btn'),
   rxBar: $('rx-bar'),
   rxProgress: $('rx-progress'),
+  transfer: $('transfer'),
+  transferLabel: $('transfer-label'),
+  transferCount: $('transfer-count'),
+  transferProgress: $('transfer-progress'),
   last: $('last-message'),
+  lastImage: $('last-image'),
   lastText: $('last-text'),
   lastMeta: $('last-meta'),
   copyLast: $('copy-last'),
+  saveLast: $('save-last'),
   fileInput: $('file-input'),
   selftestBtn: $('selftest-btn'),
   history: $('history'),
@@ -52,10 +85,14 @@ const ui = {
 
 const state = {
   profile: 'normal',
+  mode: 'text',
+  quality: 'orta',
+  attachment: null,
   ctx: null,
   analyser: null,
   sink: null,
   workletLoaded: false,
+  busy: false,
   playing: null,
   listening: null,
   worker: null,
@@ -64,6 +101,8 @@ const state = {
   history: [],
   statusTimer: 0,
   levelBuf: null,
+  assembler: new ObjectAssembler(),
+  lostChunks: 0,
 };
 
 const spectrogram = new Spectrogram(ui.canvas, ui.axis);
@@ -82,79 +121,282 @@ function loadJson(key, fallback) {
 function saveJson(key, value) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
+    return true;
   } catch {
-    // gizli pencere / kapalı depolama: tercihler bu oturumla sınırlı kalır
+    return false; // gizli pencere / kapalı ya da dolu depolama
   }
 }
 
 function savePrefs() {
-  saveJson(PREFS_KEY, { profile: state.profile, volume: Number(ui.volume.value) });
+  saveJson(PREFS_KEY, {
+    profile: state.profile,
+    volume: Number(ui.volume.value),
+    mode: state.mode,
+    quality: state.quality,
+    loop: ui.loop.checked,
+  });
+}
+
+// ---------------------------------------------------------------- biçimleme
+
+function formatBytes(n) {
+  if (n < 1024) return `${n} bayt`;
+  if (n < 1024 * 1024) return `${num.format(n / 1024)} KB`;
+  return `${num.format(n / 1024 / 1024)} MB`;
+}
+
+function formatRate(p) {
+  const r = rawByteRate(p);
+  if (r >= 1000) return `${num.format(r / 1024)} KB/sn`;
+  return `${r >= 100 ? Math.round(r) : num.format(r)} B/sn`;
+}
+
+function formatSeconds(s) {
+  if (s < 90) return `${num.format(s)} sn`;
+  const m = Math.floor(s / 60);
+  return `${m} dk ${Math.round(s - 60 * m)} sn`;
+}
+
+const khz = (hz) => num.format(hz / 1000);
+
+function bandRange(key) {
+  const bands = PROFILES.filter((p) => p.band === key).map(profileBand);
+  const lo = Math.floor(Math.min(...bands.map((b) => b.lo)) / 500) * 500;
+  const hi = Math.ceil(Math.max(...bands.map((b) => b.hi)) / 500) * 500;
+  return `${khz(lo)}–${khz(hi)} kHz`;
 }
 
 // ---------------------------------------------------------------- profil ve tahmin
 
-function renderProfiles() {
-  ui.picker.replaceChildren(
-    ...PROFILES.map((p) => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.setAttribute('role', 'radio');
-      b.dataset.key = p.key;
-      b.innerHTML = `<strong></strong><small></small>`;
-      b.querySelector('strong').textContent = p.name;
-      b.querySelector('small').textContent = `${num.format(rawByteRate(p))} B/sn`;
-      b.addEventListener('click', () => selectProfile(p.key));
-      return b;
-    }),
+function choice(key, title, subtitle, onClick) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.setAttribute('role', 'radio');
+  b.dataset.key = key;
+  b.innerHTML = '<strong></strong><small></small>';
+  b.querySelector('strong').textContent = title;
+  b.querySelector('small').textContent = subtitle;
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+function renderPickers() {
+  ui.bandPicker.replaceChildren(...BANDS.map((b) => choice(b.key, b.name, bandRange(b.key), () => selectBand(b.key))));
+  ui.speedPicker.replaceChildren(...SPEEDS.map((s) => choice(s.key, s.name, '', () => selectSpeed(s.key))));
+  ui.qualityPicker.replaceChildren(
+    ...IMAGE_PRESETS.map((q) =>
+      choice(q.key, q.name, q.maxDim ? `≤ ${q.maxDim} px` : 'değiştirme', () => selectQuality(q.key)),
+    ),
   );
+  for (const b of ui.qualityPicker.children) b.setAttribute('aria-checked', String(b.dataset.key === state.quality));
   selectProfile(state.profile, false);
 }
 
 function renderProfileTable() {
   const body = $('profile-table');
+  const order = (p) => BANDS.findIndex((b) => b.key === p.band) * 10 + SPEEDS.findIndex((s) => s.key === p.speed);
   body.replaceChildren(
-    ...PROFILES.map((p) => {
-      const band = profileBand(p);
-      const tr = document.createElement('tr');
-      for (const text of [
-        p.name,
-        `${num.format(rawByteRate(p))} B/sn`,
-        `${num.format(band.lo / 1000)}–${num.format(band.hi / 1000)} kHz`,
-        p.summary,
-      ]) {
-        const td = document.createElement('td');
-        td.textContent = text;
-        tr.append(td);
-      }
-      return tr;
-    }),
+    ...PROFILES.slice()
+      .sort((a, b) => order(a) - order(b))
+      .map((p) => {
+        const band = profileBand(p);
+        const tr = document.createElement('tr');
+        for (const text of [p.name, formatRate(p), `${khz(band.lo)}–${khz(band.hi)} kHz`, p.summary]) {
+          const td = document.createElement('td');
+          td.textContent = text;
+          tr.append(td);
+        }
+        return tr;
+      }),
   );
 }
 
 function selectProfile(key, persist = true) {
   state.profile = key;
   const p = getProfile(key);
-  for (const b of ui.picker.children) b.setAttribute('aria-checked', String(b.dataset.key === key));
+  for (const b of ui.bandPicker.children) b.setAttribute('aria-checked', String(b.dataset.key === p.band));
+  for (const b of ui.speedPicker.children) {
+    const q = findProfile(p.band, b.dataset.key);
+    b.disabled = !q;
+    b.title = q ? q.summary : 'bu bantta yok';
+    b.querySelector('small').textContent = q ? formatRate(q) : '—';
+    b.setAttribute('aria-checked', String(b.dataset.key === p.speed));
+  }
   const band = profileBand(p);
-  ui.summary.textContent = `${p.summary} · ${num.format(band.lo / 1000)}–${num.format(band.hi / 1000)} kHz`;
+  ui.summary.textContent = `${p.summary} · ${khz(band.lo)}–${khz(band.hi)} kHz`;
   spectrogram.setMarks([band]);
-  if (key === 'ultrasonik' && spectrogram.maxHz < 20000) setRange(20000);
+  if (band.hi > spectrogram.maxHz) setRange(20000);
   updateEstimate();
   if (persist) savePrefs();
 }
 
-function messageBytes() {
-  return utf8.encode(ui.message.value).length + (ui.password.value ? ENCRYPTION_OVERHEAD : 0);
+/** Bant değişince aynı hız yoksa en yakınına geçilir (eşitlikte yavaş olana). */
+function selectBand(band) {
+  const speeds = SPEEDS.map((s) => s.key);
+  const i = speeds.indexOf(getProfile(state.profile).speed);
+  const byDistance = speeds.map((k, j) => ({ k, d: Math.abs(j - i) + (j > i ? 0.5 : 0) })).sort((a, b) => a.d - b.d);
+  for (const { k } of byDistance) {
+    const p = findProfile(band, k);
+    if (p) return selectProfile(p.key);
+  }
+}
+
+function selectSpeed(speed) {
+  const p = findProfile(getProfile(state.profile).band, speed);
+  if (p) selectProfile(p.key);
+}
+
+function selectQuality(key) {
+  state.quality = key;
+  for (const b of ui.qualityPicker.children) b.setAttribute('aria-checked', String(b.dataset.key === key));
+  savePrefs();
+  prepareAttachment();
+}
+
+function setMode(mode, persist = true) {
+  state.mode = mode;
+  const file = mode === 'file';
+  ui.tabText.setAttribute('aria-selected', String(!file));
+  ui.tabFile.setAttribute('aria-selected', String(file));
+  ui.tabText.tabIndex = file ? -1 : 0;
+  ui.tabFile.tabIndex = file ? 0 : -1;
+  ui.paneText.hidden = file;
+  ui.paneFile.hidden = !file;
+  updateEstimate();
+  if (persist) savePrefs();
+}
+
+/** Gövde boyutu: bkz. transfer.js packBody. */
+const bodyBytes = (name, mime, n) => 3 + Math.min(255, utf8.encode(name).length) + utf8.encode(mime).length + n + 4;
+
+/**
+ * Seçili içeriğin nasıl gönderileceği: tek paket mi, parçalı nesne mi; paket boyları.
+ * null: gönderilecek bir şey yok; { tooBig } : bu profille taşınamaz.
+ */
+function currentPlan() {
+  const p = getProfile(state.profile);
+  const enc = ui.password.value ? ENCRYPTION_OVERHEAD : 0;
+  let content;
+  if (state.mode === 'text') {
+    const n = utf8.encode(ui.message.value).length;
+    if (n === 0) return null;
+    if (n + enc <= p.maxBytes) return { single: true, bytes: n, lengths: [n + enc] };
+    content = bodyBytes('', TEXT_MIME, n) + enc;
+  } else {
+    const f = state.attachment?.prepared;
+    if (!f) return null;
+    content = bodyBytes(f.name, f.mime, f.data.length) + enc;
+  }
+  if (content > maxContentBytes(p.chunkBytes)) return { tooBig: true, bytes: content };
+  const plan = { single: false, bytes: content, ...objectPlan(content, p) };
+  if (plan.seconds > MAX_SECONDS) return { tooBig: true, tooLong: true, bytes: content, seconds: plan.seconds };
+  return plan;
+}
+
+/** Nesnenin parçalanışı; gönderirken de aynı hesap kullanılır. */
+function objectPlan(contentBytes, p) {
+  return planChunks(contentBytes, p.chunkBytes, (bytes, count) => estimateStreamDuration(new Array(count).fill(bytes), p));
+}
+
+function planDuration(plan) {
+  return plan.single ? estimateDuration(plan.lengths[0], getProfile(state.profile)) : plan.seconds;
 }
 
 function updateEstimate() {
-  const n = messageBytes();
-  const over = n > MAX_MESSAGE_BYTES;
-  ui.byteCount.textContent = String(n);
-  ui.byteCount.parentElement.classList.toggle('over', over);
-  ui.sendBtn.disabled = n === 0 || over || !!state.playing;
-  ui.wavBtn.disabled = n === 0 || over;
-  ui.estimate.textContent = n && !over ? `≈ ${num.format(estimateDuration(n, getProfile(state.profile)))} sn` : '';
+  const plan = currentPlan();
+  const ok = !!plan && !plan.tooBig;
+  if (state.mode === 'text') {
+    const n = utf8.encode(ui.message.value).length;
+    ui.byteCount.textContent = formatBytes(n);
+    ui.textHint.classList.toggle('over', !!plan?.tooBig);
+    ui.estimate.textContent = !plan
+      ? ''
+      : plan.tooBig
+        ? 'bu profil için çok uzun'
+        : `≈ ${formatSeconds(planDuration(plan))}${plan.single ? '' : ` · ${plan.k + plan.m} paket`}`;
+  } else {
+    ui.fileEstimate.classList.toggle('over', !!plan?.tooBig);
+    ui.fileEstimate.textContent = !plan
+      ? ''
+      : plan.tooLong
+        ? `${formatBytes(plan.bytes)}: bu profille ≈ ${formatSeconds(plan.seconds)} sürer (en çok ${MAX_SECONDS / 60} dk). Görseli küçült ya da daha hızlı bir profil seç.`
+        : plan.tooBig
+          ? `${formatBytes(plan.bytes)}: bu profil için çok büyük (en çok ${formatBytes(maxContentBytes(getProfile(state.profile).chunkBytes))}). Görseli küçült ya da daha hızlı bir profil seç.`
+          : `${formatBytes(plan.bytes)} · ${plan.k + plan.m} paket (herhangi ${plan.k} tanesi yeter) · ≈ ${formatSeconds(planDuration(plan))}`;
+  }
+  ui.loopField.hidden = !ok || plan.single;
+  ui.sendBtn.disabled = !ok || !!state.playing || state.busy;
+  ui.wavBtn.disabled = !ok || state.busy;
+  ui.selftestBtn.disabled = !ok || state.busy;
+}
+
+// ---------------------------------------------------------------- ek (görsel/dosya)
+
+const isImageFile = (file) => /^image\/(png|jpeg|webp|gif|avif|bmp|heic|heif)$/.test(file.type);
+
+async function setAttachment(file) {
+  if (!file) return;
+  setMode('file');
+  const att = { file, name: file.name || 'dosya', mime: file.type || 'application/octet-stream', img: null, prepared: null };
+  state.attachment = att;
+  ui.attachment.hidden = false;
+  ui.attachmentName.textContent = att.name;
+  ui.attachmentInfo.textContent = 'hazırlanıyor…';
+  ui.attachmentPreview.hidden = true;
+  if (isImageFile(file)) {
+    try {
+      att.img = await loadImage(file);
+    } catch {
+      att.img = null; // çözülemeyen görsel dosya gibi gönderilir
+    }
+  }
+  if (state.attachment === att) await prepareAttachment();
+}
+
+function clearAttachment() {
+  state.attachment = null;
+  ui.attachment.hidden = true;
+  ui.qualityField.hidden = true;
+  ui.filePick.value = '';
+  ui.cameraPick.value = '';
+  updateEstimate();
+}
+
+/** Görseli seçili boyuta küçültür ya da dosyayı olduğu gibi okur. */
+async function prepareAttachment() {
+  const att = state.attachment;
+  if (!att) return;
+  const token = (att.token = {});
+  att.prepared = null;
+  ui.qualityField.hidden = !att.img;
+  updateEstimate();
+  try {
+    let prepared;
+    if (att.img && state.quality !== 'orijinal') {
+      const preset = IMAGE_PRESETS.find((q) => q.key === state.quality);
+      const res = await compressImage(att.img, preset);
+      const ext = res.type === 'image/webp' ? 'webp' : 'jpg';
+      prepared = { name: att.name.replace(/\.[^.]*$/, '') + `.${ext}`, mime: res.type, data: res.bytes, width: res.width, height: res.height };
+    } else {
+      if (att.file.size > MAX_FILE) throw new Error(`dosya çok büyük (${formatBytes(att.file.size)}); en çok ${formatBytes(MAX_FILE)}`);
+      prepared = { name: att.name, mime: att.mime, data: new Uint8Array(await att.file.arrayBuffer()) };
+      if (att.img) Object.assign(prepared, { width: att.img.naturalWidth, height: att.img.naturalHeight });
+    }
+    if (att.token !== token) return; // bu arada başka dosya ya da boyut seçildi
+    att.prepared = prepared;
+    const image = sniffImage(prepared.data);
+    ui.attachmentPreview.hidden = !image;
+    if (image) ui.attachmentPreview.src = dataUrl(image.type, prepared.data);
+    const parts = [formatBytes(prepared.data.length)];
+    if (prepared.width) parts.push(`${prepared.width}×${prepared.height}`);
+    if (att.img && state.quality !== 'orijinal') parts.push(`asıl: ${formatBytes(att.file.size)}`);
+    ui.attachmentName.textContent = prepared.name;
+    ui.attachmentInfo.textContent = parts.join(' · ');
+  } catch (err) {
+    if (att.token !== token) return;
+    ui.attachmentInfo.textContent = `Hazırlanamadı: ${err.message}`;
+  }
+  updateEstimate();
 }
 
 // ---------------------------------------------------------------- ses bağlamı
@@ -214,58 +456,100 @@ function setRange(maxHz) {
 
 // ---------------------------------------------------------------- gönderme
 
-async function preparePayload() {
-  let bytes = utf8.encode(ui.message.value);
+/** Gönderilecek paketler: kısa metin tek paket, gerisi parçalı nesne. */
+async function buildJob() {
+  const p = getProfile(state.profile);
   const password = ui.password.value;
-  if (password) bytes = await encryptBytes(bytes, password);
-  return { bytes, encrypted: !!password };
+  const encrypted = !!password;
+  let body;
+  let item;
+  if (state.mode === 'text') {
+    const text = ui.message.value;
+    const bytes = utf8.encode(text);
+    const single = encrypted ? await encryptBytes(bytes, password) : bytes;
+    if (single.length <= p.maxBytes) return { payloads: [single], kind: KIND_TEXT, encrypted, item: { kind: 'text', text } };
+    body = packBody({ mime: TEXT_MIME, data: bytes });
+    item = { kind: 'text', text };
+  } else {
+    const f = state.attachment.prepared;
+    body = packBody({ name: f.name, mime: f.mime, data: f.data });
+    item = describeObject(f, {});
+  }
+  const content = encrypted ? await encryptBytes(body, password) : body;
+  const id = crypto.getRandomValues(new Uint16Array(1))[0];
+  return { payloads: makeChunks(content, objectPlan(content.length, p).chunkBytes, id), kind: KIND_CHUNK, encrypted, item };
 }
 
 async function send() {
-  if (state.playing) return;
-  const ctx = audio();
+  if (state.playing || state.busy) return;
+  const ctx = audio(); // kullanıcı dokunuşu sırasında: iOS sesi ancak böyle açar
   const profile = getProfile(state.profile);
   if (!supportsProfile(profile, ctx.sampleRate)) {
     return warn(`Bu cihazın ses çıkışı (${ctx.sampleRate} Hz) ${profile.name} profilini çalamıyor.`);
   }
-  ui.sendBtn.disabled = true;
+  state.busy = true;
+  updateEstimate();
   try {
-    const { bytes, encrypted } = await preparePayload();
-    const { samples, duration } = encodeMessage(bytes, profile.key, ctx.sampleRate, { amplitude: 0.9, encrypted });
-    const buffer = ctx.createBuffer(1, samples.length, ctx.sampleRate);
-    buffer.copyToChannel(samples, 0);
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    const gain = ctx.createGain();
-    gain.gain.value = Number(ui.volume.value) / 100;
-    source.connect(gain);
-    gain.connect(ctx.destination);
-    gain.connect(state.analyser);
-    setAudioSession(state.listening ? 'play-and-record' : 'playback');
-    const start = ctx.currentTime + 0.05;
-    source.start(start);
-    state.playing = { source, start, duration };
-    source.onended = () => {
-      state.playing = null;
-      ui.playback.hidden = true;
-      updateEstimate();
-      refreshSpectrogram();
-    };
-    ui.playback.hidden = false;
-    animatePlayback();
-    refreshSpectrogram();
-    addHistory({ dir: 'out', profile: profile.key, text: ui.message.value, encrypted });
+    const job = await buildJob();
+    const loop = ui.loop.checked && job.payloads.length > 1;
+    if (job.payloads.length > 1) setStatus(state.listening ? 'listening' : 'idle', 'Ses hazırlanıyor…');
+    const res = await request({
+      type: 'encode',
+      payloads: job.payloads,
+      profile: profile.key,
+      sampleRate: ctx.sampleRate,
+      kind: job.kind,
+      encrypted: job.encrypted,
+      amplitude: 0.9,
+    });
+    play(res.samples, res.duration, loop);
+    addHistory({ dir: 'out', profile: profile.key, encrypted: job.encrypted, ...job.item });
+    if (job.payloads.length > 1) {
+      setStatus(state.listening ? 'listening' : 'idle', state.listening ? 'Dinleniyor…' : 'Hazır');
+    }
   } catch (err) {
     warn(`Gönderilemedi: ${err.message}`);
+  } finally {
+    state.busy = false;
     updateEstimate();
   }
+}
+
+function play(samples, duration, loop) {
+  const ctx = state.ctx;
+  const buffer = ctx.createBuffer(1, samples.length, ctx.sampleRate);
+  buffer.copyToChannel(samples, 0);
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  source.loop = loop;
+  const gain = ctx.createGain();
+  gain.gain.value = Number(ui.volume.value) / 100;
+  source.connect(gain);
+  gain.connect(ctx.destination);
+  gain.connect(state.analyser);
+  setAudioSession(state.listening ? 'play-and-record' : 'playback');
+  const start = ctx.currentTime + 0.05;
+  source.start(start);
+  state.playing = { source, start, duration, loop };
+  source.onended = () => {
+    state.playing = null;
+    ui.playback.hidden = true;
+    updateEstimate();
+    refreshSpectrogram();
+  };
+  ui.playback.hidden = false;
+  animatePlayback();
+  refreshSpectrogram();
 }
 
 function animatePlayback() {
   const p = state.playing;
   if (!p) return;
   const t = Math.max(0, state.ctx.currentTime - p.start);
-  ui.playProgress.style.width = `${Math.min(100, (100 * t) / p.duration)}%`;
+  const round = Math.floor(t / p.duration);
+  const f = p.loop ? t / p.duration - round : Math.min(1, t / p.duration);
+  ui.playProgress.style.width = `${100 * f}%`;
+  ui.playLabel.textContent = p.loop ? `${round + 1}. tur` : formatSeconds(Math.max(0, p.duration - t));
   requestAnimationFrame(animatePlayback);
 }
 
@@ -278,18 +562,37 @@ function stopPlayback() {
 }
 
 async function downloadWav() {
+  if (state.busy) return;
+  state.busy = true;
+  updateEstimate();
   try {
-    const { bytes, encrypted } = await preparePayload();
-    const { samples } = encodeMessage(bytes, state.profile, WAV_RATE, { amplitude: 0.9, encrypted });
-    const url = URL.createObjectURL(new Blob([encodeWav(samples, WAV_RATE)], { type: 'audio/wav' }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `sonik-${state.profile}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.wav`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    const job = await buildJob();
+    const res = await request({
+      type: 'encode',
+      payloads: job.payloads,
+      profile: state.profile,
+      sampleRate: WAV_RATE,
+      kind: job.kind,
+      encrypted: job.encrypted,
+      amplitude: 0.9,
+    });
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    saveBlob(new Blob([encodeWav(res.samples, WAV_RATE)], { type: 'audio/wav' }), `sonik-${state.profile}-${stamp}.wav`);
   } catch (err) {
     warn(`WAV oluşturulamadı: ${err.message}`);
+  } finally {
+    state.busy = false;
+    updateEstimate();
   }
+}
+
+function saveBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 // ---------------------------------------------------------------- dinleme
@@ -401,7 +704,12 @@ async function onLiveEvent(ev) {
   const p = getProfile(ev.profile);
   switch (ev.type) {
     case 'sync':
-      setStatus('rx', `Sinyal yakalandı · ${p.name} · ${ev.length} bayt${ev.encrypted ? ' · şifreli' : ''}`);
+      setStatus(
+        'rx',
+        ev.kind === KIND_CHUNK
+          ? `Parça yakalandı · ${p.name}${ev.encrypted ? ' · şifreli' : ''}`
+          : `Sinyal yakalandı · ${p.name} · ${formatBytes(ev.length)}${ev.encrypted ? ' · şifreli' : ''}`,
+      );
       ui.rxBar.hidden = false;
       ui.rxProgress.style.width = '0%';
       break;
@@ -411,7 +719,8 @@ async function onLiveEvent(ev) {
       break;
     case 'message': {
       ui.rxBar.hidden = true;
-      const item = await receivedItem(ev, 'in');
+      if (ev.kind === KIND_CHUNK) return onChunk(ev);
+      const item = await receivedText(ev, 'in');
       showLast(item);
       addHistory(item);
       setStatus('ok', item.locked ? 'Şifreli mesaj alındı' : 'Mesaj alındı', 5000);
@@ -419,9 +728,43 @@ async function onLiveEvent(ev) {
     }
     case 'fail':
       ui.rxBar.hidden = true;
-      setStatus('fail', 'Çözülemedi: sinyal zayıf ya da bozuk. Sesi açın ya da yaklaşın.', 6000);
+      if (ev.kind === KIND_CHUNK && state.assembler.pending().length) {
+        state.lostChunks++;
+        updateTransfer();
+        setStatus('fail', 'Bir parça çözülemedi; gönderen tekrarlarsa sonraki turda tamamlanır.', 5000);
+      } else {
+        setStatus('fail', 'Çözülemedi: sinyal zayıf ya da bozuk. Sesi açın ya da yaklaşın.', 6000);
+      }
       break;
   }
+}
+
+/** Canlı dinlemede gelen nesne parçası. */
+async function onChunk(ev) {
+  const res = state.assembler.add(ev.bytes, { encrypted: ev.encrypted, profile: ev.profile });
+  if (!res) return;
+  if (!res.fresh) {
+    updateTransfer();
+    if (!res.done) setStatus('rx', `Parça alındı · ${res.have}/${res.need}`);
+    return;
+  }
+  state.lostChunks = 0;
+  updateTransfer();
+  if (res.error) return setStatus('fail', `İçerik kurulamadı: ${res.error}`, 6000);
+  const item = await receivedObject(res.content, ev, 'in');
+  showLast(item);
+  addHistory(item);
+  setStatus('ok', item.locked ? 'Şifreli içerik alındı' : item.kind === 'file' ? `${item.image ? 'Görsel' : 'Dosya'} alındı` : 'Mesaj alındı', 5000);
+}
+
+function updateTransfer() {
+  const pending = state.assembler.pending().at(-1);
+  ui.transfer.hidden = !pending;
+  if (!pending) return;
+  ui.transferLabel.textContent = 'Parçalı içerik alınıyor';
+  const lost = state.lostChunks ? ` · ${state.lostChunks} bozuk` : '';
+  ui.transferCount.textContent = `${Math.min(pending.have, pending.need)}/${pending.need} parça${lost}`;
+  ui.transferProgress.style.width = `${(100 * Math.min(pending.have, pending.need)) / pending.need}%`;
 }
 
 // ---------------------------------------------------------------- dosya ve simülasyon
@@ -449,77 +792,141 @@ async function decodeFile(file) {
   }
 }
 
+/** Profilin amaçlandığı mesafeye uygun bir oda: Turbo yan yana, Çok hızlı ~1 m, diğerleri yankılı oda. */
+function simulationFor(p) {
+  const band = profileBand(p);
+  const base = { noiseBand: [band.lo * 0.5, Math.min(23000, band.hi * 1.5)], lowCut: 250, delay: 0.3 };
+  if (p.speed === 'turbo') return { label: 'yan yana, hafif yankı', channel: { ...base, rt60: 0.4, drr: 12, snr: 20 } };
+  if (p.speed === 'cok-hizli') return { label: '1 m, yankılı oda + gürültü', channel: { ...base, rt60: 0.45, drr: 2, snr: 15 } };
+  return { label: 'yankılı oda + gürültü', channel: { ...base, rt60: 0.45, drr: 0, snr: 10 } };
+}
+
 async function selftest() {
-  ui.selftestBtn.disabled = true;
-  setStatus('rx', 'Simülasyon: yankılı oda + gürültü…');
+  if (state.busy) return;
+  state.busy = true;
+  updateEstimate();
+  const profile = getProfile(state.profile);
+  const sim = simulationFor(profile);
+  setStatus('rx', `Simülasyon: ${sim.label}…`);
   try {
-    const profile = getProfile(state.profile);
-    const band = profileBand(profile);
-    const { bytes, encrypted } = await preparePayload();
+    const job = await buildJob();
     const res = await request({
       type: 'selftest',
-      bytes,
+      payloads: job.payloads,
       profile: profile.key,
-      encrypted,
-      channel: {
-        rt60: 0.45,
-        drr: 0,
-        snr: 10,
-        noiseBand: [band.lo * 0.5, Math.min(23000, band.hi * 1.5)],
-        lowCut: 250,
-        delay: 0.3,
-      },
+      kind: job.kind,
+      encrypted: job.encrypted,
+      channel: sim.channel,
     });
     await reportBatch(res, 'sim', 'simülasyon');
   } catch (err) {
     setStatus('fail', `Simülasyon hatası: ${err.message}`, 6000);
   } finally {
-    ui.selftestBtn.disabled = false;
+    state.busy = false;
+    updateEstimate();
   }
 }
 
+/** Bir kayıttan ya da simülasyondan çıkan olayların hepsi: metinler ve kurulan nesneler. */
 async function reportBatch(res, dir, label) {
-  const found = res.events.filter((e) => e.type === 'message');
-  const failed = res.events.filter((e) => e.type === 'fail').length;
-  for (const ev of found) {
-    const item = await receivedItem(ev, dir);
+  const assembler = new ObjectAssembler();
+  const items = [];
+  let failed = res.events.filter((e) => e.type === 'fail').length;
+  let partial = null;
+  for (const ev of res.events) {
+    if (ev.type !== 'message') continue;
+    if (ev.kind !== KIND_CHUNK) {
+      items.push(await receivedText(ev, dir));
+      continue;
+    }
+    const r = assembler.add(ev.bytes, { encrypted: ev.encrypted, profile: ev.profile });
+    if (!r) continue;
+    if (r.fresh && r.content) items.push(await receivedObject(r.content, ev, dir));
+    else if (r.fresh) failed++;
+    else if (!r.done) partial = r;
+  }
+  for (const item of items) {
     addHistory(item);
     showLast(item);
   }
   const speed = res.seconds / (res.ms / 1000);
-  const summary = found.length
-    ? `${label}: ${found.length} mesaj çözüldü (${num.format(res.seconds)} sn ses, ${Math.round(speed)}× gerçek zaman)`
-    : `${label}: mesaj bulunamadı${failed ? ` (${failed} paket bozuk)` : ''}`;
-  setStatus(found.length ? 'ok' : 'fail', summary, 7000);
+  const pending = assembler.pending().at(-1) ?? partial;
+  const summary = items.length
+    ? `${label}: ${items.length} öğe çözüldü (${formatSeconds(res.seconds)} ses, ${Math.round(speed)}× gerçek zaman)`
+    : pending
+      ? `${label}: içerik eksik kaldı (${pending.have}/${pending.need} parça)`
+      : `${label}: mesaj bulunamadı${failed ? ` (${failed} paket bozuk)` : ''}`;
+  setStatus(items.length ? 'ok' : 'fail', summary, 7000);
 }
 
-// ---------------------------------------------------------------- mesaj ve geçmiş
+// ---------------------------------------------------------------- alınan içerik
 
-const toBase64 = (bytes) => btoa(String.fromCharCode(...bytes));
+const toBase64 = (bytes) => {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+};
 const fromBase64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 const utf8Text = (bytes) => new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+const dataUrl = (type, bytes) => `data:${type};base64,${toBase64(bytes)}`;
 
-async function openPayload(bytes, encrypted) {
-  if (!encrypted) return { text: utf8Text(bytes) };
-  const password = ui.password.value;
-  if (!password) return { locked: 'Şifreli mesaj; açmak için parolayı girin.' };
+/** Dosya adı: yol ayırıcı ve denetim karakterleri atılır, gizli dosya adı olmaz. */
+function safeName(name, image) {
+  let n = name.replace(/[\\/:*?"<>|\u0000-\u001f\u007f]+/g, '_').trim().slice(0, 120);
+  n = n.replace(/^\.+/, '');
+  if (!n) n = 'sonik-dosya';
+  if (image && !/\.[a-z0-9]{2,5}$/i.test(n)) n += `.${image.type.split('/')[1].replace('jpeg', 'jpg')}`;
+  return n;
+}
+
+/** Çözülmüş gövde → geçmiş öğesi (uzun metin ya da dosya). */
+function describeObject({ name = '', mime = '', data }, base) {
+  if (!name && mime === TEXT_MIME) return { ...base, kind: 'text', text: utf8Text(data) };
+  const image = sniffImage(data);
+  return {
+    ...base,
+    kind: 'file',
+    name: safeName(name, image),
+    mime: image?.type ?? 'application/octet-stream',
+    size: data.length,
+    image: !!image,
+    width: image?.width,
+    height: image?.height,
+    data: toBase64(data),
+  };
+}
+
+async function receivedText(ev, dir) {
+  const base = { dir, profile: ev.profile, encrypted: ev.encrypted, stats: ev.stats, kind: 'text' };
+  if (!ev.encrypted) return { ...base, text: utf8Text(ev.bytes) };
+  const opened = await unseal(ev.bytes);
+  if (opened.locked) return { ...base, locked: opened.locked, sealed: 'text', data: toBase64(ev.bytes) };
+  return { ...base, text: utf8Text(opened.bytes) };
+}
+
+async function receivedObject(content, ev, dir) {
+  const base = { dir, profile: ev.profile, encrypted: ev.encrypted, stats: ev.stats };
+  let body = content;
+  if (ev.encrypted) {
+    const opened = await unseal(content);
+    if (opened.locked) return { ...base, kind: 'file', locked: opened.locked, sealed: 'object', data: toBase64(content), size: content.length };
+    body = opened.bytes;
+  }
   try {
-    return { text: utf8Text(await decryptBytes(bytes, password)) };
-  } catch {
-    return { locked: 'Şifreli mesaj; parola uyuşmuyor.' };
+    return describeObject(unpackBody(body), base);
+  } catch (err) {
+    return { ...base, kind: 'text', locked: `Bozuk içerik: ${err.message}` };
   }
 }
 
-async function receivedItem(ev, dir) {
-  const opened = await openPayload(ev.bytes, ev.encrypted);
-  return {
-    dir,
-    profile: ev.profile,
-    encrypted: ev.encrypted,
-    stats: ev.stats,
-    ...opened,
-    data: opened.locked ? toBase64(ev.bytes) : undefined,
-  };
+async function unseal(bytes) {
+  const password = ui.password.value;
+  if (!password) return { locked: 'Şifreli içerik; açmak için parolayı girin.' };
+  try {
+    return { bytes: await decryptBytes(bytes, password) };
+  } catch {
+    return { locked: 'Şifreli içerik; parola uyuşmuyor.' };
+  }
 }
 
 function statsText(item) {
@@ -530,22 +937,59 @@ function statsText(item) {
   return parts.join(' · ');
 }
 
+function fileText(item) {
+  const parts = [item.name];
+  if (item.size) parts.push(formatBytes(item.size));
+  if (item.width) parts.push(`${item.width}×${item.height}`);
+  return parts.join(' · ');
+}
+
+function downloadItem(item) {
+  saveBlob(new Blob([fromBase64(item.data)], { type: item.image ? item.mime : 'application/octet-stream' }), item.name);
+}
+
 function showLast(item) {
   ui.last.hidden = false;
   ui.last.classList.toggle('locked', !!item.locked);
-  ui.lastText.textContent = item.locked ?? item.text;
+  const file = item.kind === 'file' && !item.locked;
+  const image = file && item.image && item.data;
+  ui.lastImage.hidden = !image;
+  if (image) {
+    ui.lastImage.src = `data:${item.mime};base64,${item.data}`;
+    ui.lastImage.alt = item.name;
+  } else ui.lastImage.removeAttribute('src');
+  ui.lastText.textContent = item.locked ?? (file ? fileText(item) : item.text);
+  ui.lastText.classList.toggle('file-name', !!file);
   ui.lastMeta.textContent = [getProfile(item.profile).name, item.encrypted ? 'şifreli' : '', statsText(item)]
     .filter(Boolean)
     .join(' · ');
-  ui.copyLast.hidden = !!item.locked;
+  ui.copyLast.hidden = !!item.locked || file;
   ui.copyLast.onclick = () => copyText(item.text, ui.copyLast);
+  ui.saveLast.hidden = !file || !item.data;
+  ui.saveLast.onclick = () => downloadItem(item);
 }
 
+// ---------------------------------------------------------------- geçmiş
+
 function addHistory(item) {
-  state.history.unshift({ ...item, time: Date.now() });
+  const entry = { ...item, time: Date.now() };
+  if (entry.data && entry.data.length > (HISTORY_DATA_LIMIT * 4) / 3) {
+    entry.data = undefined; // çok büyük: yalnız bu oturumda indirilebilir (son mesaj kutusu)
+    entry.dropped = true;
+  }
+  state.history.unshift(entry);
   state.history.length = Math.min(state.history.length, HISTORY_LIMIT);
-  saveJson(HISTORY_KEY, state.history);
+  saveHistory();
   renderHistory();
+}
+
+/** Depolama dolarsa en eski dosyaların verisi atılarak yeniden denenir. */
+function saveHistory() {
+  while (!saveJson(HISTORY_KEY, state.history)) {
+    const i = state.history.findLastIndex((h) => h.kind === 'file' && h.data && !h.locked);
+    if (i < 0) return;
+    state.history[i] = { ...state.history[i], data: undefined, dropped: true };
+  }
 }
 
 const DIR_LABEL = { in: 'Alındı', out: 'Gönderildi', file: 'Dosyadan', sim: 'Simülasyon' };
@@ -554,8 +998,9 @@ function renderHistory() {
   ui.historyEmpty.hidden = state.history.length > 0;
   ui.history.replaceChildren(
     ...state.history.map((item) => {
+      const file = item.kind === 'file' && !item.locked;
       const li = document.createElement('li');
-      li.className = `item ${item.dir}${item.locked ? ' locked' : ''}`;
+      li.className = `item ${item.dir}${item.locked ? ' locked' : ''}${file ? ' has-file' : ''}`;
       const head = document.createElement('div');
       head.className = 'item-head';
       const tag = document.createElement('span');
@@ -574,15 +1019,29 @@ function renderHistory() {
       head.append(tag, meta);
       const body = document.createElement('div');
       body.className = 'item-text';
-      body.textContent = item.locked ?? item.text;
+      if (file) {
+        if (item.image && item.data) {
+          const img = document.createElement('img');
+          img.className = 'thumb';
+          img.alt = item.name;
+          img.src = `data:${item.mime};base64,${item.data}`;
+          body.append(img);
+        }
+        const name = document.createElement('span');
+        name.textContent = fileText(item) + (item.dropped ? ' · veri saklanmadı (büyük)' : '');
+        body.append(name);
+      } else {
+        body.textContent = item.locked ?? item.text;
+      }
       li.append(head, body);
-      if (!item.locked) {
-        const copy = document.createElement('button');
-        copy.type = 'button';
-        copy.className = 'btn small ghost copy';
-        copy.textContent = 'Kopyala';
-        copy.addEventListener('click', () => copyText(item.text, copy));
-        head.append(copy);
+      const action = file ? (item.data ? 'İndir' : null) : item.locked ? null : 'Kopyala';
+      if (action) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn small ghost copy';
+        btn.textContent = action;
+        btn.addEventListener('click', () => (file ? downloadItem(item) : copyText(item.text, btn)));
+        head.append(btn);
       }
       return li;
     }),
@@ -592,16 +1051,26 @@ function renderHistory() {
 /** Parola değişince kilitli (şifreli) kayıtlar yeniden açılmaya çalışılır. */
 async function unlockHistory() {
   let changed = false;
-  for (const item of state.history) {
+  for (let i = 0; i < state.history.length; i++) {
+    const item = state.history[i];
     if (!item.locked || !item.data) continue;
-    const opened = await openPayload(fromBase64(item.data), true);
-    if (!opened.locked) {
-      Object.assign(item, { text: opened.text, locked: undefined, data: undefined });
-      changed = true;
+    const sealed = fromBase64(item.data);
+    const opened = await unseal(sealed);
+    if (opened.locked) continue;
+    const base = { dir: item.dir, profile: item.profile, encrypted: true, stats: item.stats, time: item.time };
+    if (item.sealed === 'object') {
+      try {
+        state.history[i] = { ...describeObject(unpackBody(opened.bytes), base), time: item.time };
+      } catch {
+        continue;
+      }
+    } else {
+      state.history[i] = { ...base, kind: 'text', text: utf8Text(opened.bytes) };
     }
+    changed = true;
   }
   if (changed) {
-    saveJson(HISTORY_KEY, state.history);
+    saveHistory();
     renderHistory();
     if (state.history[0] && !ui.last.hidden) showLast(state.history[0]);
   }
@@ -650,12 +1119,15 @@ function init() {
   const prefs = loadJson(PREFS_KEY, {});
   if (prefs.profile && PROFILES.some((p) => p.key === prefs.profile)) state.profile = prefs.profile;
   if (Number.isFinite(prefs.volume)) ui.volume.value = prefs.volume;
+  if (IMAGE_PRESETS.some((q) => q.key === prefs.quality)) state.quality = prefs.quality;
+  ui.loop.checked = !!prefs.loop;
   ui.volumeOut.textContent = `%${ui.volume.value}`;
   state.history = loadJson(HISTORY_KEY, []).filter((h) => h && h.profile && PROFILES.some((p) => p.key === h.profile));
 
-  renderProfiles();
+  renderPickers();
   renderProfileTable();
   renderHistory();
+  setMode(prefs.mode === 'file' ? 'file' : 'text', false);
   checkEnvironment();
 
   ui.message.addEventListener('input', updateEstimate);
@@ -667,10 +1139,46 @@ function init() {
       send();
     }
   });
+  ui.tabText.addEventListener('click', () => setMode('text'));
+  ui.tabFile.addEventListener('click', () => setMode('file'));
+  for (const tab of [ui.tabText, ui.tabFile]) {
+    tab.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      const next = tab === ui.tabText ? ui.tabFile : ui.tabText;
+      next.click();
+      next.focus();
+    });
+  }
+  ui.filePick.addEventListener('change', () => setAttachment(ui.filePick.files[0]));
+  ui.cameraPick.addEventListener('change', () => setAttachment(ui.cameraPick.files[0]));
+  ui.attachmentClear.addEventListener('click', clearAttachment);
+  const card = ui.drop.closest('.card');
+  card.addEventListener('dragover', (e) => {
+    if (![...e.dataTransfer.types].includes('Files')) return;
+    e.preventDefault();
+    ui.drop.classList.add('over');
+  });
+  card.addEventListener('dragleave', (e) => {
+    if (!card.contains(e.relatedTarget)) ui.drop.classList.remove('over');
+  });
+  card.addEventListener('drop', (e) => {
+    const file = e.dataTransfer.files[0];
+    ui.drop.classList.remove('over');
+    if (!file) return;
+    e.preventDefault();
+    setAttachment(file);
+  });
+  document.addEventListener('paste', (e) => {
+    const file = [...(e.clipboardData?.files ?? [])][0];
+    if (!file) return; // düz metin yapıştırma olduğu gibi kalır
+    e.preventDefault();
+    setAttachment(file);
+  });
   ui.volume.addEventListener('input', () => {
     ui.volumeOut.textContent = `%${ui.volume.value}`;
     savePrefs();
   });
+  ui.loop.addEventListener('change', savePrefs);
   ui.sendBtn.addEventListener('click', send);
   ui.stopBtn.addEventListener('click', stopPlayback);
   ui.wavBtn.addEventListener('click', downloadWav);
@@ -680,7 +1188,7 @@ function init() {
   ui.selftestBtn.addEventListener('click', selftest);
   ui.clearHistory.addEventListener('click', () => {
     state.history = [];
-    saveJson(HISTORY_KEY, state.history);
+    saveHistory();
     renderHistory();
   });
   updateEstimate();

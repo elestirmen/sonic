@@ -96,6 +96,47 @@ test('yalnız gürültü: sahte mesaj üretmez', () => {
   assert.ok(events.filter((e) => e.type === 'sync').length <= 1);
 });
 
+test('OFDM: 44.1 kHz verici → 48 kHz alıcı, ±150 ppm saat farkı, en uzun paket', () => {
+  const msg = new Uint8Array(1024).map((_, i) => (i * 131 + 7) & 255);
+  for (const [key, ppm] of [
+    ['turbo', 150],
+    ['cok-hizli', -150],
+    ['yuksek-turbo', 120],
+    ['yuksek-cok-hizli', -120],
+    ['ultra-turbo', 100],
+  ]) {
+    const { samples } = encodeMessage(msg, key, 44100);
+    const rx = simulateChannel(samples, 44100, { fsOut: 48000, ppm, rt60: 0.3, drr: 15, snr: 25, noiseBand: [1000, 21000], delay: 0.2, seed: 8 });
+    const got = messages(decodeSamples(rx, 48000, { profiles: [getProfile(key)] }));
+    assert.equal(got.length, 1, key);
+    assert.deepEqual(got[0].bytes, msg, key);
+  }
+});
+
+test('Turbo: yan yana (RT60 0.4 s, DRR +12 dB, SNR 20 dB)', () => {
+  const msg = new Uint8Array(900).map((_, i) => (i * 17) & 255);
+  const { samples } = encodeMessage(msg, 'turbo', 48000);
+  let ok = 0;
+  for (let seed = 1; seed <= 5; seed++) {
+    const rx = simulateChannel(samples, 48000, { rt60: 0.4, drr: 12, snr: 20, noiseBand: [1000, 15000], seed });
+    const got = messages(decodeSamples(rx, 48000, { profiles: [getProfile('turbo')] }));
+    if (got.length === 1 && got[0].bytes.every((v, i) => v === msg[i])) ok++;
+  }
+  assert.ok(ok >= 4, `5 denemeden ${ok} başarılı`);
+});
+
+test('Çok hızlı: yankılı oda (RT60 0.5 s, DRR 0 dB, SNR 15 dB)', () => {
+  const msg = bytes(SAMPLE.repeat(4));
+  const { samples } = encodeMessage(msg, 'cok-hizli', 48000);
+  let ok = 0;
+  for (let seed = 1; seed <= 5; seed++) {
+    const rx = simulateChannel(samples, 48000, { rt60: 0.5, drr: 0, snr: 15, noiseBand: [1000, 15000], seed });
+    const got = messages(decodeSamples(rx, 48000, { profiles: [getProfile('cok-hizli')] }));
+    if (got.length === 1 && text(got[0].bytes) === SAMPLE.repeat(4)) ok++;
+  }
+  assert.ok(ok >= 4, `5 denemeden ${ok} başarılı`);
+});
+
 test('WAV yaz → oku → çöz', () => {
   const { samples } = encodeMessage(bytes(SAMPLE), 'normal', 44100);
   const wav = decodeWav(encodeWav(samples, 44100));

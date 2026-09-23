@@ -6,7 +6,8 @@
 // gürültü (uğultu, konuşmanın bas kısmı) ρ'yu gereksiz yere düşürmez.
 //
 // Yanlış alarmlar ucuzdur: her aday kendi çözücüsünü başlatır ve başlık
-// doğrulanamazsa sessizce elenir. Bu yüzden eşik düşük tutulur.
+// doğrulanamazsa sessizce elenir. Bu yüzden eşik düşük tutulur. Aynı chirp'i
+// paylaşan profiller tek şablonla aranır; aday, hepsi için birer çözücü açar.
 
 import { FFT, nextPow2 } from './fft.js';
 import { BandPass } from './filters.js';
@@ -21,7 +22,10 @@ export class ChirpDetector {
   constructor(fs, profiles, store) {
     this.fs = fs;
     this.store = store;
-    const templates = profiles.map((p) => chirpWaveform(p.chirp, fs));
+    const groups = new Map();
+    for (const p of profiles) groups.set(p.chirp, [...(groups.get(p.chirp) ?? []), p]);
+    const chirps = [...groups.keys()];
+    const templates = chirps.map((c) => chirpWaveform(c, fs));
     const maxLen = Math.max(...templates.map((t) => t.length));
     this.n = nextPow2(2 * maxLen);
     this.hop = this.n - maxLen + 1;
@@ -35,7 +39,7 @@ export class ChirpDetector {
     this.prefix = new Float64Array(this.n + 1);
     this.peakN = Math.round(PEAK_WINDOW * fs);
 
-    this.items = profiles.map((profile, idx) => {
+    this.items = chirps.map((chirp, idx) => {
       const tpl = templates[idx];
       let energy = 0;
       for (const v of tpl) energy += v * v;
@@ -44,15 +48,15 @@ export class ChirpDetector {
       const ci = new Float64Array(this.n);
       for (let i = 0; i < tpl.length; i++) cr[i] = tpl[i] * scale;
       this.fft.transform(cr, ci);
-      const lo = Math.min(profile.chirp.from, profile.chirp.to) * 0.85;
-      const hi = Math.max(profile.chirp.from, profile.chirp.to) * 1.12;
+      const lo = Math.min(chirp.from, chirp.to) * 0.85;
+      const hi = Math.max(chirp.from, chirp.to) * 1.12;
       return {
-        profile,
+        profiles: groups.get(chirp),
         len: tpl.length,
         cr,
         ci,
         filter: new BandPass(lo, hi, fs),
-        band: new SampleStore(store.cap),
+        band: new SampleStore(Math.min(store.cap, this.n + 4 * fs)), // bir blok + gecikme payı yeter
         noise: 0.02,
         cand: null,
         quietUntil: 0,
@@ -135,7 +139,7 @@ export class ChirpDetector {
           it.cand.pos = pos;
         }
         if (pos >= it.cand.deadline) {
-          found.push({ profile: it.profile, pos: it.cand.pos, rho: it.cand.rho });
+          found.push({ profiles: it.profiles, pos: it.cand.pos, rho: it.cand.rho });
           it.quietUntil = it.cand.pos + this.peakN;
           it.cand = null;
         }
