@@ -14,7 +14,7 @@ simülatöründe yan yana karşılaştırılabilirler. Alıcı hangi yöntemin g
 
 **Canlı sürüm:** <https://sonik.perinet.org>
 
-![Sonik arayüzü: yöntem, bant ve hız seçimi; görsel Turbo ile gönderilip çözülmüş](docs/sonik.webp)
+![Sonik arayüzü: yedi yöntem, bant ve hız seçimi; görsel OFDM-QAM Turbo ile simülasyonda gönderilip çözülmüş](docs/sonik.webp)
 
 ## Özellikler
 
