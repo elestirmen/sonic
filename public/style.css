@@ -646,6 +646,15 @@ output {
   background: var(--warn);
 }
 
+.transfer-preview {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  margin: 0 auto 10px;
+  border-radius: 8px;
+  background: var(--surface); /* henüz gelmeyen satırlar: görselin tam çerçevesi baştan görünür */
+}
+
 .last {
   margin-top: 14px;
   padding: 12px 14px;

@@ -22,6 +22,8 @@ simülatöründe yan yana karşılaştırılabilirler. Alıcı hangi yöntemin g
   17–20,5 kHz) ve hız kademeleri; net 2,8 B/sn'den 1,3 KB/sn'ye. Mod 1 varsayılan, Mod 2–7 deneysel.
 - **Metin, görsel ve dosya:** görsel seçilen boyuta küçültülüp WebP olarak yeniden kodlanır; her
   tür dosya gönderilebilir (yayın en çok 5 dakika: Turbo ile ~80 KB). Uzun metin kendiliğinden parçalanır.
+- **Canlı görsel önizleme:** alıcıda görsel, bitmesi beklenmeden parçalar geldikçe yukarıdan aşağı
+  çizilir; WebP'den vazgeçmeden (bkz. Ortak katmanlar).
 - **Sağlamlık:** Reed-Solomon (silintili), CRC-32; deneysel yöntemlerin çoğunda ayrıca bir iç kod
   (K = 7 ya da K = 9 evrişimli kod ve yumuşak kararlı Viterbi; FT8'de LDPC ve inanç yayılımı);
   paketler arası eşlik parçaları ve tekrar kipi (kaçan parçalar sonraki turda tamamlanır).
@@ -242,6 +244,11 @@ tamamlama bitlerini alıcı bildiği için bu blok kısaltılmış kod gibi gü�
 - **Görsel ve dosya:** içerik K parçaya bölünür, sütun sütun Reed-Solomon ile M eşlik parçası
   üretilir (paket kayıplarına karşı silinti kodu [12]): alıcı herhangi K farklı parçayı duyunca
   içeriği kurar. Parça boyu yayın süresini en aza indirecek şekilde seçilir.
+- **Canlı önizleme:** kod sistematiktir ve parçalar sırayla gider, yani ilk K parça içeriğin
+  kendisidir. Alıcı baştan kesintisiz gelen parçaları, kapanmamış bir akış olarak tarayıcının görsel
+  çözücüsüne (WebCodecs `ImageDecoder`) verir; çözücü o ana kadar çözebildiği satırları döndürür.
+  `<img>` kesik bir WebP'yi hiç göstermediği için bu yol gerekir. VP8 tüm blokların kiplerini dosyanın
+  başında topladığından WebP'nin ilk satırları verinin ~%30'u gelince görünür.
 - **Güvenlik:** alınan metin DOM'a yalnız `textContent` ile yazılır. Görsel, gönderenin bildirdiği
   türe bakılmadan imzasından tanınıyorsa (PNG, JPEG, GIF, WebP) ve boyutu makulse gösterilir; diğer
   her şey yalnız indirilir, dosya adı temizlenir. Sayfa sıkı bir CSP ile sunulur. Ses bir yayındır:
@@ -407,7 +414,7 @@ public/                  yalnız bu klasör yayınlanır
   src/receiver-worker.js kodlama ve çözme işi (Web Worker)
   src/mod/               mfsk, css, ofdm, dsss, janus, qam, ft8 (verici + alıcı); registry.js
   src/transfer.js        görsel/dosya: parçalama, paketler arası RS, birleştirme
-  src/image.js           görsel küçültme; alınan görselin imzası ve boyutu
+  src/image.js           görsel küçültme; alınan görselin imzası ve boyutu; yarım görselin canlı çizimi
   src/crypto.js          PBKDF2 + AES-GCM
   src/codec/             crc32, reedsolomon, conv (K = 7/9 evrişimli kod, Viterbi, serpiştirme),
                          ldpc (FT8'in LDPC(174, 91) kodu, inanç yayılımı), framing (başlık, RS, iç kod)
@@ -449,6 +456,9 @@ Başka bir kurulumda `DOMAIN`, `REFERENCE` ve betikteki `UPSTREAM` değiştirilm
 - Tarayıcı ya da işletim sistemi mikrofon sesini işlemeyi (yankı engelleme, gürültü bastırma)
   kapatmazsa tonlar bozulabilir; sayfa bunu algılayınca uyarır.
 - Paket biçiminin 3. sürümü önceki sürümlerle uyumlu değildir; iki cihaz da aynı sürümü açmalı.
+- Canlı görsel önizleme yalnız Chrome'da denendi; `ImageDecoder` olmayan tarayıcıda görsel eskisi gibi
+  tamamlanınca açılır. Önizleme ilk eksik parçada durur ve o parça sonraki turda ya da yeterince eşlik
+  parçası gelince sürer. Şifreli içerik önizlenmez (AES-GCM doğrulaması ancak sonda yapılabilir).
 - Sonuçlar simülatör ölçümleridir; gerçek cihazlarla oda koşullarında ölçülmedi. Simülatörün oda
   modeli ayrık erken yansımaları zayıf üretir (RAKE'in faydası orada az görünür); bazı yöntemlerin
   alıcı ayarları benzer oda tiplerinde yapıldı, zorlu koşullardaki sonuçlar onları biraz iyi gösterebilir.
@@ -547,6 +557,8 @@ In a far reverberant room (RT60 1.2 s, DRR −12 dB), CSS, DSSS and JANUS decode
 fixed 8-tone set suffers from echo. Long-symbol CSS loses timing when the device is shaken, whereas
 MFSK, DSSS, JANUS and FT8 do not. OFDM-QAM reaches 1.3 kB/s net side by side and 648 B/s at 50 cm. All
 results are from the simulator; the methods have not yet been measured on real devices.
-Cross-packet Reed–Solomon parity makes image and file transfer tolerant to lost packets. Optional
+Cross-packet Reed–Solomon parity makes image and file transfer tolerant to lost packets. While an
+image is still arriving, the receiver draws it row by row from the packets heard so far (WebP streamed
+into WebCodecs `ImageDecoder`). Optional
 AES-GCM encryption is available. Everything stays on the device. The UI is in Turkish. Try it at
 <https://sonik.perinet.org>.

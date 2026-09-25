@@ -1,6 +1,6 @@
 {
   "name": "sonik",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "description": "Tarayıcıda çalışan akustik modem: metni, görseli ya da dosyayı sese çevirir, mikrofondan dinleyip çözer.",
   "homepage": "https://sonik.perinet.org",
   "repository": {

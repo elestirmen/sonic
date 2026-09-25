@@ -88,6 +88,20 @@ export function packBody({ name = '', mime = '', data }) {
   return out;
 }
 
+/** Gövdenin ad ve tür alanları; end'e kadar sığmıyorsa null. start: verinin başladığı yer. */
+function readHead(body, end) {
+  if (body.length < 3 || body[0] !== BODY_VERSION) return null;
+  const dec = new TextDecoder();
+  let o = 1;
+  const n = body[o++];
+  if (o + n >= end) return null;
+  const name = dec.decode(body.subarray(o, o + n));
+  o += n;
+  const t = body[o++];
+  if (o + t > end) return null;
+  return { name, mime: dec.decode(body.subarray(o, o + t)), start: o + t };
+}
+
 /** Gövdeyi açar; bozuksa hata fırlatır. */
 export function unpackBody(body) {
   if (body.length < 7 || body[0] !== BODY_VERSION) throw new Error('tanınmayan nesne biçimi');
@@ -95,17 +109,24 @@ export function unpackBody(body) {
   if (new DataView(body.buffer, body.byteOffset).getUint32(end) !== crc32(body.subarray(0, end))) {
     throw new Error('nesne sağlaması tutmuyor');
   }
-  const dec = new TextDecoder();
-  let o = 1;
-  const n = body[o++];
-  if (o + n >= end) throw new Error('bozuk nesne');
-  const name = dec.decode(body.subarray(o, o + n));
-  o += n;
-  const t = body[o++];
-  if (o + t > end) throw new Error('bozuk nesne');
-  const mime = dec.decode(body.subarray(o, o + t));
-  o += t;
-  return { name, mime, data: body.slice(o, end) };
+  const head = readHead(body, end);
+  if (!head) throw new Error('bozuk nesne');
+  return { name: head.name, mime: head.mime, data: body.slice(head.start, end) };
+}
+
+/**
+ * Nesnenin baştan gelmiş bölümünden (bkz. ObjectAssembler.prefix) adı, türü ve verinin
+ * o ana kadarki kısmını okur; canlı önizleme içindir, sağlama henüz denetlenemez.
+ * Başlık daha gelmediyse null.
+ */
+export function peekBody(prefix) {
+  if (prefix.length < 7) return null;
+  const length = new DataView(prefix.buffer, prefix.byteOffset).getUint32(0);
+  const body = prefix.subarray(4, 4 + Math.min(length, prefix.length - 4));
+  const end = length - 4; // CRC'den önce
+  const head = readHead(body, Math.min(body.length, end));
+  if (!head) return null;
+  return { name: head.name, mime: head.mime, data: body.subarray(head.start, Math.min(body.length, end)), size: end - head.start };
 }
 
 /** İçeriği K veri + M eşlik parçasına böler; her biri bir paket gövdesi. */
@@ -181,10 +202,36 @@ export class ObjectAssembler {
     return status;
   }
 
-  /** Henüz tamamlanmamış nesnelerin durumu (ilerleme göstergesi için). */
+  /**
+   * Henüz tamamlanmamış nesnelerin durumu (ilerleme göstergesi için).
+   * head: baştan kesintisiz gelen veri parçası sayısı; have'den azsa arada eksik var.
+   */
   pending() {
-    return [...this.objects.values()].filter((o) => !o.done).map((o) => ({ id: o.id, have: o.chunks.size, need: o.k, total: o.k + o.m }));
+    return [...this.objects.values()]
+      .filter((o) => !o.done)
+      .map((o) => ({ id: o.id, have: o.chunks.size, need: o.k, total: o.k + o.m, head: headCount(o) }));
   }
+
+  /**
+   * Tamamlanmamış nesnenin baştan kesintisiz gelen baytları: parçalar sırayla gönderildiği
+   * ve ilk K parça nesnenin kendisi olduğu için dosyanın başı nesne bitmeden okunabilir.
+   * { bytes, encrypted } ya da henüz ilk parça yoksa null.
+   */
+  prefix(id) {
+    const o = this.objects.get(id);
+    if (!o || o.done) return null;
+    const n = headCount(o);
+    if (!n) return null;
+    const bytes = new Uint8Array(n * o.size);
+    for (let i = 0; i < n; i++) bytes.set(o.chunks.get(i), i * o.size);
+    return { bytes, encrypted: o.encrypted };
+  }
+}
+
+function headCount(o) {
+  let n = 0;
+  while (n < o.k && o.chunks.has(n)) n++;
+  return n;
 }
 
 function assemble({ k, m, size, chunks }) {

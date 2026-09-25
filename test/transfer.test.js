@@ -7,6 +7,7 @@ import {
   maxContentBytes,
   packBody,
   parseChunk,
+  peekBody,
   unpackBody,
 } from '../public/src/transfer.js';
 import { KIND_CHUNK } from '../public/src/codec/framing.js';
@@ -83,6 +84,46 @@ test('parçalar: eksikken tamamlanmaz, tekrarlar sayılmaz, bitenden sonra yenid
   assert.equal(res.done, true);
   assert.equal(res.fresh, false);
   assert.equal(asm.pending().length, 0);
+});
+
+test('önizleme: baştan kesintisiz gelen parçalar dosyanın başını verir, boşlukta durur', () => {
+  const data = randomBytes(1500);
+  const packets = makeChunks(packBody({ name: 'foto.webp', mime: 'image/webp', data }), 100, 11);
+  const asm = new ObjectAssembler();
+  asm.add(packets[1]);
+  assert.equal(asm.prefix(11), null); // ilk parça yokken hiçbir şey okunamaz
+  asm.add(packets[0]);
+  let head = peekBody(asm.prefix(11).bytes);
+  assert.equal(head.name, 'foto.webp');
+  assert.equal(head.mime, 'image/webp');
+  assert.equal(head.size, data.length);
+  assert.deepEqual(head.data, data.subarray(0, head.data.length));
+  const before = head.data.length;
+  asm.add(packets[3]); // 2 eksik: önizleme ilerlemez
+  assert.equal(peekBody(asm.prefix(11).bytes).data.length, before);
+  assert.deepEqual(asm.pending()[0], { id: 11, have: 3, need: 16, total: 20, head: 2 });
+  asm.add(packets[2]);
+  head = peekBody(asm.prefix(11).bytes);
+  assert.equal(head.data.length, before + 200);
+  assert.deepEqual(head.data, data.subarray(0, head.data.length));
+  for (const p of packets.slice(4, 15)) asm.add(p);
+  // son parça gelmeden verinin tamamı görünmez ve CRC ile dolgu veriye karışmaz
+  head = peekBody(asm.prefix(11).bytes);
+  assert.ok(head.data.length < data.length);
+  assert.deepEqual(head.data, data.subarray(0, head.data.length));
+  assert.equal(asm.add(packets[15]).fresh, true);
+  assert.equal(asm.prefix(11), null);
+});
+
+test('önizleme: başlık gelmeden ya da tanınmayan gövdede null', () => {
+  const body = packBody({ name: 'x'.repeat(200), mime: 'image/webp', data: randomBytes(300) });
+  const packets = makeChunks(body, 64, 5);
+  const asm = new ObjectAssembler();
+  asm.add(packets[0]); // 200 baytlık ad ilk 64 bayta sığmaz
+  assert.equal(peekBody(asm.prefix(5).bytes), null);
+  const junk = new Uint8Array(64);
+  junk[3] = 60;
+  assert.equal(peekBody(junk), null);
 });
 
 test('parçalar: aynı numaralı farklı nesneler karışmaz', () => {

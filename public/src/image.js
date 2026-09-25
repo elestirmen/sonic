@@ -121,3 +121,66 @@ export function sniffImage(b) {
   if (!info || !info.width || !info.height || info.width * info.height > MAX_PIXELS) return null;
   return info;
 }
+
+const PARTIAL_TYPES = ['image/webp', 'image/jpeg', 'image/png'];
+
+/**
+ * Yarım gelmiş görseli gelen kadarıyla tuvale çizer. <img> kesik bir WebP'yi hiç
+ * göstermez; WebCodecs ImageDecoder'a ise veri kapanmamış bir akış olarak verilirse
+ * çözebildiği satırları döndürür. VP8'de makro blok kipleri verinin başında
+ * toplandığından WebP'nin ilk satırları ancak verinin ~%20'si geldikten sonra görünür.
+ * ImageDecoder olmayan tarayıcıda (supported false) görsel yine tamamlanınca açılır.
+ */
+export class PartialImage {
+  static supported(type) {
+    return typeof ImageDecoder === 'function' && PARTIAL_TYPES.includes(type);
+  }
+
+  constructor(type, canvas) {
+    this.canvas = canvas;
+    this.sent = 0;
+    this.busy = false;
+    this.dirty = false;
+    this.closed = false;
+    const stream = new ReadableStream({ start: (c) => (this.feed = c) });
+    this.decoder = new ImageDecoder({ data: stream, type });
+  }
+
+  /** data: verinin baştan gelen tamamı; çözücüye yalnız yeni kısmı verilir. */
+  push(data) {
+    if (this.closed || data.length <= this.sent) return;
+    this.feed.enqueue(data.slice(this.sent));
+    this.sent = data.length;
+    this.draw();
+  }
+
+  async draw() {
+    if (this.busy) {
+      this.dirty = true; // süren çözme bitince yeni veriyle bir kez daha
+      return;
+    }
+    this.busy = true;
+    try {
+      do {
+        this.dirty = false;
+        const { image } = await this.decoder.decode({ frameIndex: 0, completeFramesOnly: false });
+        if (!this.closed) this.canvas.getContext('2d').drawImage(image, 0, 0, this.canvas.width, this.canvas.height);
+        image.close();
+      } while (this.dirty && !this.closed);
+    } catch {
+      this.close(); // bozuk veri ya da çözücü kapandı: önizleme olduğu yerde kalır
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  close() {
+    if (this.closed) return;
+    this.closed = true;
+    try {
+      this.decoder.close();
+    } catch {
+      // zaten kapalı
+    }
+  }
+}

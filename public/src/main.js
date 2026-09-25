@@ -5,8 +5,8 @@
 import { BANDS, MODES, PROFILES, SPEEDS, findProfile, getProfile, netByteRate, profileBand, supportsProfile } from './profiles.js';
 import { estimateDuration, estimateStreamDuration } from './modem.js';
 import { KIND_CHUNK, KIND_TEXT } from './codec/framing.js';
-import { ObjectAssembler, TEXT_MIME, makeChunks, maxContentBytes, packBody, planChunks, unpackBody } from './transfer.js';
-import { IMAGE_PRESETS, compressImage, loadImage, sniffImage } from './image.js';
+import { ObjectAssembler, TEXT_MIME, makeChunks, maxContentBytes, packBody, peekBody, planChunks, unpackBody } from './transfer.js';
+import { IMAGE_PRESETS, PartialImage, compressImage, loadImage, sniffImage } from './image.js';
 import { decodeWav, encodeWav } from './audio/wav.js';
 import { Spectrogram } from './ui/spectrogram.js';
 import { ENCRYPTION_OVERHEAD, decryptBytes, encryptBytes } from './crypto.js';
@@ -21,6 +21,7 @@ const HISTORY_DATA_LIMIT = 64 * 1024; // geçmişte saklanacak en büyük dosya 
 const WAV_RATE = 48000;
 const MAX_SECONDS = 300; // daha uzun bir yayın telefonda yüzlerce MB ses belleği ister
 const MAX_FILE = Math.max(...PROFILES.map((p) => maxContentBytes(p.chunkBytes)));
+const PREVIEW_DIM = 720; // canlı önizleme tuvalinin en uzun kenarı
 
 const ui = {
   tabText: $('tab-text'),
@@ -72,6 +73,7 @@ const ui = {
   transferLabel: $('transfer-label'),
   transferCount: $('transfer-count'),
   transferProgress: $('transfer-progress'),
+  transferPreview: $('transfer-preview'),
   last: $('last-message'),
   lastImage: $('last-image'),
   lastText: $('last-text'),
@@ -107,6 +109,7 @@ const state = {
   levelBuf: null,
   assembler: new ObjectAssembler(),
   lostChunks: 0,
+  preview: null, // { id, name, image } alınmakta olan görselin canlı önizlemesi
 };
 
 const spectrogram = new Spectrogram(ui.canvas, ui.axis);
@@ -825,6 +828,7 @@ async function onChunk(ev) {
   const res = state.assembler.add(ev.bytes, { encrypted: ev.encrypted, profile: ev.profile });
   if (!res) return;
   if (!res.fresh) {
+    if (!res.done) updatePreview(res.id);
     updateTransfer();
     if (!res.done) setStatus('rx', `Parça alındı · ${res.have}/${res.need}`);
     return;
@@ -841,11 +845,45 @@ async function onChunk(ev) {
 function updateTransfer() {
   const pending = state.assembler.pending().at(-1);
   ui.transfer.hidden = !pending;
+  if (pending?.id !== state.preview?.id) resetPreview();
   if (!pending) return;
-  ui.transferLabel.textContent = 'Parçalı içerik alınıyor';
+  const preview = state.preview;
+  ui.transferLabel.textContent = preview ? `Görsel alınıyor · ${preview.name}` : 'Parçalı içerik alınıyor';
   const lost = state.lostChunks ? ` · ${state.lostChunks} bozuk` : '';
-  ui.transferCount.textContent = `${Math.min(pending.have, pending.need)}/${pending.need} parça${lost}`;
+  // önizleme ilk eksik parçada durur; o parça ya da yeterince eşlik parçası gelince sürer
+  const gap = preview && pending.head < pending.have ? ` · ${pending.head + 1}. parça bekleniyor` : '';
+  ui.transferCount.textContent = `${Math.min(pending.have, pending.need)}/${pending.need} parça${lost}${gap}`;
   ui.transferProgress.style.width = `${(100 * Math.min(pending.have, pending.need)) / pending.need}%`;
+}
+
+/**
+ * Alınmakta olan görseli baştan kesintisiz gelen parçalar kadarıyla gösterir. Şifreli
+ * içerik önizlenmez: AES-GCM doğrulaması ancak içerik tamamlanınca yapılabilir.
+ */
+function updatePreview(id) {
+  const part = state.assembler.prefix(id);
+  if (!part || part.encrypted) return;
+  const head = peekBody(part.bytes);
+  if (!head) return;
+  if (state.preview?.id !== id) {
+    const info = sniffImage(head.data);
+    if (!info || !PartialImage.supported(info.type)) return; // görsel değil ya da imza henüz eksik
+    resetPreview();
+    const scale = Math.min(1, PREVIEW_DIM / Math.max(info.width, info.height));
+    ui.transferPreview.width = Math.max(1, Math.round(info.width * scale));
+    ui.transferPreview.height = Math.max(1, Math.round(info.height * scale));
+    ui.transferPreview.hidden = false;
+    state.preview = { id, name: safeName(head.name, info), image: new PartialImage(info.type, ui.transferPreview) };
+  }
+  state.preview.image.push(head.data);
+}
+
+function resetPreview() {
+  if (!state.preview) return;
+  state.preview.image.close();
+  state.preview = null;
+  ui.transferPreview.hidden = true;
+  ui.transferPreview.width = ui.transferPreview.height = 0; // belleği bırak
 }
 
 // ---------------------------------------------------------------- dosya ve simülasyon
