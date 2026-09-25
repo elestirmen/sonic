@@ -57,11 +57,10 @@
 //    faz başvurusu bir önceki semboldür. Kanal fazını kestiren koherent RAKE'e göre düşük SNR'de
 //    birkaç dB kaybettirir, karşılığında hareket ve Doppler'e duyarsızdır.
 
+import { RX_TABLE, TX_TABLE, TX_TAPS, rc, rxKernel, txTable } from '../dsp/pulse.js';
+
 const TWO_PI = 2 * Math.PI;
 const ROLLOFF = 0.5; // kök yükseltilmiş kosinüs (RRC) yuvarlanma katsayısı
-const TX_TAPS = 5; // verici darbesinin yarı uzunluğu (çip)
-const RX_TAPS = 3; // alıcı uyumlu süzgecinin yarı uzunluğu (çip): ISI −46 dB, uyumsuzluk kaybı 0,002 dB
-const TAPER = 1; // darbe uçlarındaki kosinüs geçişi (çip)
 const CLIP = 1.25; // temel bant genliği, RMS'in bu katında kırpılır (tepe/RMS 1,46 → 1,25)
 const RAMP = 0.001; // paketin başında ve sonunda yumuşak geçiş (s)
 const REF_DUR = 0.1; // başvuru bitlerinin en kısa süresi (s)
@@ -78,8 +77,6 @@ const TRACK = 2e-4; // izleyicinin beklediği gecikme değişimi (s/s), kazancı
 const A_MIN = 0.03;
 const A_MAX = 0.5;
 const MAX_DEPTH = 24; // serpiştirici satır sayısı sınırı
-const TABLE = 64; // alıcı çekirdek tablosunun örnek başına çözünürlüğü
-const TX_TABLE = 256; // verici darbe tablosunun çip başına çözünürlüğü
 
 // Barker-11 (IEEE 802.11-1997 DSSS PHY).
 const BARKER11 = [1, -1, 1, 1, -1, 1, 1, 1, -1, -1, -1];
@@ -106,33 +103,6 @@ export function spreadingCode(name) {
 // güçlü). Rastgele desende katlanan yankının işareti bitten bite değişir, ortalamada söner.
 const REF_BITS = Uint8Array.from(spreadingCode('m127'), (c) => (1 - c) / 2);
 const refBit = (j) => (j > 0 ? REF_BITS[j % REF_BITS.length] : 0);
-
-/** Kök yükseltilmiş kosinüs darbesi (t çip cinsinden, birim enerji). */
-function rrc(t, b) {
-  const pi = Math.PI;
-  if (Math.abs(t) < 1e-9) return 1 - b + (4 * b) / pi;
-  if (Math.abs(Math.abs(t) - 1 / (4 * b)) < 1e-9) {
-    const x = pi / (4 * b);
-    return (b / Math.SQRT2) * ((1 + 2 / pi) * Math.sin(x) + (1 - 2 / pi) * Math.cos(x));
-  }
-  const num = Math.sin(pi * t * (1 - b)) + 4 * b * t * Math.cos(pi * t * (1 + b));
-  return num / (pi * t * (1 - (4 * b * t) ** 2));
-}
-
-/** Kesilmiş RRC: uçları TAPER çip boyunca kosinüsle sıfıra iner. */
-function pulse(t, b, taps) {
-  const a = Math.abs(t);
-  if (a >= taps) return 0;
-  const w = a <= taps - TAPER ? 1 : 0.5 + 0.5 * Math.cos((Math.PI * (a - taps + TAPER)) / TAPER);
-  return rrc(t, b) * w;
-}
-
-/** Yükseltilmiş kosinüs (RRC * RRC): alıcı çıkışındaki çip darbesi. */
-function rc(t, b) {
-  const s = Math.abs(t) < 1e-9 ? 1 : Math.sin(Math.PI * t) / (Math.PI * t);
-  const d = 1 - (2 * b * t) ** 2;
-  return Math.abs(d) < 1e-9 ? (Math.PI / 4) * s : (s * Math.cos(Math.PI * b * t)) / d;
-}
 
 // ln I0(x) için Abramowitz ve Stegun 9.8.1–9.8.2 polinomları (bağıl hata < 2·10⁻⁷).
 const I0_SMALL = [1, 3.5156229, 3.0899424, 1.2067492, 0.2659732, 0.0360768, 0.0045813];
@@ -227,19 +197,6 @@ export function interleaveOrder(n) {
   return order;
 }
 
-const txTables = new Map();
-
-function txTable(beta) {
-  let t = txTables.get(beta);
-  if (!t) {
-    const n = 2 * TX_TAPS * TX_TABLE + 2;
-    t = new Float64Array(n);
-    for (let i = 0; i < n; i++) t[i] = pulse(i / TX_TABLE - TX_TAPS, beta, TX_TAPS);
-    txTables.set(beta, t);
-  }
-  return t;
-}
-
 /**
  * Veri bölümünü out'a ekler. start: ilk başvuru bitinin başı (kesirli örnek no).
  * headerBits / payloadBits: iç kodlu (serpiştirilmemiş) bitler.
@@ -296,25 +253,6 @@ export function renderDsss(out, start, headerBits, payloadBits, p, fs, amplitude
     out[i] += gain * env * x * Math.cos(w * (i - start));
   }
   return last + 1;
-}
-
-const rxKernels = new Map();
-
-/** Alıcı uyumlu süzgeci (RRC), örnek cinsinden tablo; komşu farkları ara değerleme için. */
-function rxKernel(spc, beta) {
-  const key = `${spc.toFixed(6)}:${beta}`;
-  let k = rxKernels.get(key);
-  if (!k) {
-    const half = Math.ceil(RX_TAPS * spc);
-    const n = (2 * half + 3) * TABLE;
-    const table = new Float64Array(n);
-    const diff = new Float64Array(n);
-    for (let i = 0; i < n; i++) table[i] = pulse((i / TABLE - half) / spc, beta, RX_TAPS) / spc;
-    for (let i = 0; i + 1 < n; i++) diff[i] = table[i + 1] - table[i];
-    k = { half, taps: 2 * half + 1, table, diff };
-    rxKernels.set(key, k);
-  }
-  return k;
 }
 
 function median(values, tmp) {
@@ -421,12 +359,12 @@ export class DsssDemod {
     for (let m = 0; m < this.nOut; m++) {
       const v = u0 - from + m * hs - half;
       const i0 = Math.ceil(v);
-      const x0 = Math.max(0, (i0 - v) * TABLE);
+      const x0 = Math.max(0, (i0 - v) * RX_TABLE);
       const k0 = Math.floor(x0);
       const fr = x0 - k0;
       let sr = 0;
       let si = 0;
-      for (let t = 0, k = k0, i = i0; t < taps; t++, k += TABLE, i++) {
+      for (let t = 0, k = k0, i = i0; t < taps; t++, k += RX_TABLE, i++) {
         const h = table[k] + fr * diff[k];
         sr += yr[i] * h;
         si += yi[i] * h;

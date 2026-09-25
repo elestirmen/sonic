@@ -218,7 +218,7 @@ function renderMethods() {
  */
 const liveProfiles = () => PROFILES.filter((p) => state.experimental || !modeOf(p).experimental).map((p) => p.key);
 
-/** Deneysel yöntemler (Mod 2–7) kapalıyken seçili profil Mod 1'in en yakın profiline döner. */
+/** Deneysel yöntemler (Mod 2–8) kapalıyken seçili profil Mod 1'in en yakın profiline döner. */
 function setExperimental(on, persist = true) {
   state.experimental = on;
   ui.experimental.checked = on;

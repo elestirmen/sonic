@@ -2,7 +2,7 @@
 // cihazın kendi örnekleme hızına göre hesaplanır, bu yüzden 44.1 kHz'lik
 // bir verici ile 48 kHz'lik bir alıcı sorunsuz konuşur.
 //
-// Yedi yöntem (mod) var; her biri literatürde yerleşik bir kipleme. İlk üçü:
+// Sekiz yöntem (mod) var; her biri literatürde yerleşik bir kipleme. İlk üçü:
 //
 // MFSK (mod: 'mfsk') — ton ızgarası, kanal c, küme s, değer v (0–15):
 //   f = fStart + toneSpacing · (c · sets · 16 + v · sets + s)
@@ -23,10 +23,10 @@
 // bandında 2^sf kaymalı chirp'ler, her sembol sf bit. Bitler K = 7 evrişimli kodla
 // (code: 'conv') korunur; alıcı yumuşak kararlı Viterbi kullanır.
 //
-// Mod 4–7 (DSSS, JANUS, OFDM-QAM, FT8; bkz. mod/*.js) de iç kodludur (code: 'conv',
+// Mod 4–8 (DSSS, JANUS, OFDM-QAM, FT8, SC-DFE; bkz. mod/*.js) de iç kodludur (code: 'conv',
 // 'conv9' ya da 'ldpc'). Kendi zaman, bant ve hız bilgilerini <mod>Info(p) ile verirler.
 // Senkron chirp'lerini paylaşırlar: düşük SNR'ye yönelik olanlar (DSSS, JANUS, FT8)
-// bantlarındaki CSS chirp'ini, OFDM-QAM ise OFDM chirp'ini kullanır. Böylece dinlerken
+// bantlarındaki CSS chirp'ini, yakın mesafenin hızlı yöntemleri (OFDM-QAM, SC-DFE) OFDM chirp'ini kullanır. Böylece dinlerken
 // işlemci yükü artmaz ve karşılaştırmada her yöntem aynı senkronla başlar.
 //
 // Varsayılan yöntem MFSK'dir. Diğerleri deneyseldir (experimental): arayüz onları ancak
@@ -39,6 +39,7 @@ import { dsssInfo } from './mod/dsss.js';
 import { janusInfo } from './mod/janus.js';
 import { qamInfo } from './mod/qam.js';
 import { ft8Info } from './mod/ft8.js';
+import { dfeInfo } from './mod/dfe.js';
 
 export const PRE_SILENCE = 0.15; // bazı hoparlör yükselteçleri ilk anları yutar
 export const POST_SILENCE = 0.1;
@@ -105,6 +106,14 @@ export const MODES = [
     experimental: true,
     title: '8-GFSK, Costas senkronu ve LDPC',
     detail: '79 sembollük FT8 çerçevesi, Gray kodlu 8-GFSK; LDPC(174, 91) ve inanç yayılımı, alıcıda yankı modelli kafes çözümü (Franke, Somerville ve Taylor 2020)',
+  },
+  {
+    key: 'dfe',
+    num: 8,
+    name: 'SC-DFE',
+    experimental: true,
+    title: 'tek taşıyıcılı PSK, uyarlamalı eşitleyici',
+    detail: 'eğitim dizisiyle öğrenen yarım sembol aralıklı ileri besleme ve karar geri beslemeli eşitleyici, faz döngüsüyle birlikte RLS ile uyarlanır; BPSK/QPSK, K = 7 evrişimli kod (Stojanovic, Catipovic ve Proakis 1994)',
   },
 ];
 
@@ -859,6 +868,69 @@ export const PROFILES = [
     chunkBytes: 39,
     sim: { label: 'yankılı oda, gürültü sinyal kadar güçlü', channel: { rt60: 0.45, drr: 0, snr: 0 } },
   },
+  // ---- Mod 8 · SC-DFE (id 60–69, anahtar dfe-…)
+  // Tek taşıyıcı (bkz. mod/dfe.js): sembol hızı (fHigh − fLow) / 1,5 (RRC β = 0,5), psk 2 ya da 4.
+  // Eşitleyici FB'nin kapsamı (24 sembol ≈ 6 ms) dışındaki yankıyı gürültü gibi görür: yakın mesafe.
+  {
+    id: 60,
+    key: 'dfe-hizli',
+    name: 'SC-DFE · Hızlı',
+    band: 'std',
+    speed: 'hizli',
+    summary: 'yakın mesafe (≤ 1 m), az yankılı ortam; BPSK',
+    mod: 'dfe',
+    code: 'conv',
+    fLow: 2000,
+    fHigh: 8000,
+    psk: 2,
+    chirp: CHIRPS.stdOfdm,
+    gapDur: 0.03,
+    fecRatio: 0.1,
+    fecMin: 4,
+    maxBytes: 1024,
+    chunkBytes: 480,
+    sim: { label: '1 m, az yankılı oda', channel: { rt60: 0.4, drr: 3, snr: 15 } },
+  },
+  {
+    id: 61,
+    key: 'dfe-cok-hizli',
+    name: 'SC-DFE · Çok hızlı',
+    band: 'std',
+    speed: 'cok-hizli',
+    summary: 'cihazlar yakın (≤ 50 cm); görsel ve dosya için; QPSK',
+    mod: 'dfe',
+    code: 'conv',
+    fLow: 2000,
+    fHigh: 8000,
+    psk: 4,
+    chirp: CHIRPS.stdOfdm,
+    gapDur: 0.03,
+    fecRatio: 0.1,
+    fecMin: 4,
+    maxBytes: 1024,
+    chunkBytes: 960,
+    sim: { label: '50 cm, yankılı oda', channel: { rt60: 0.5, drr: 6, snr: 20 } },
+  },
+  {
+    id: 62,
+    key: 'dfe-yuksek-cok-hizli',
+    name: 'SC-DFE · Yüksek · Çok hızlı',
+    band: 'high',
+    speed: 'cok-hizli',
+    summary: 'cihazlar yakın (≤ 50 cm); daha az duyulur; QPSK',
+    mod: 'dfe',
+    code: 'conv',
+    fLow: 11500,
+    fHigh: 17000,
+    psk: 4,
+    chirp: CHIRPS.highOfdm,
+    gapDur: 0.03,
+    fecRatio: 0.1,
+    fecMin: 4,
+    maxBytes: 1024,
+    chunkBytes: 720,
+    sim: { label: '50 cm, yankılı oda', channel: { rt60: 0.5, drr: 6, snr: 20 } },
+  },
 ];
 
 export const PROFILE_BY_KEY = Object.fromEntries(PROFILES.map((p) => [p.key, p]));
@@ -869,8 +941,8 @@ export function getProfile(key) {
   return p;
 }
 
-// Mod 4–7: <mod>Info(p) → { T, lo, hi, codedBitRate }.
-const MOD_INFO = { dsss: dsssInfo, janus: janusInfo, qam: qamInfo, ft8: ft8Info };
+// Mod 4–8: <mod>Info(p) → { T, lo, hi, codedBitRate }.
+const MOD_INFO = { dsss: dsssInfo, janus: janusInfo, qam: qamInfo, ft8: ft8Info, dfe: dfeInfo };
 
 export function findProfile(mode, band, speed) {
   return PROFILES.find((p) => p.mod === mode && p.band === band && p.speed === speed) ?? null;

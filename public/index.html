@@ -90,7 +90,7 @@
           <span class="hint" id="method-detail"></span>
           <label class="check">
             <input id="experimental" type="checkbox" />
-            <span>Deneysel yöntemleri aç <small>(Mod 2–7: CSS, OFDM, DSSS, JANUS, OFDM-QAM, FT8. Sonuç ortama ve cihaza göre değişebilir; alan cihazda da açık olmalı.)</small></span>
+            <span>Deneysel yöntemleri aç <small>(Mod 2–8: CSS, OFDM, DSSS, JANUS, OFDM-QAM, FT8, SC-DFE. Sonuç ortama ve cihaza göre değişebilir; alan cihazda da açık olmalı.)</small></span>
           </label>
         </div>
         <div class="field">
@@ -262,6 +262,16 @@
               <i>Franke, Somerville ve Taylor 2020 (FT8); Goba, ft8_lib; Costas 1984; Gallager 1962; Bahl vd. 1974.</i>
             </li>
             <li>
+              <b>Mod 8 · SC-DFE (tek taşıyıcılı PSK, uyarlamalı eşitleyici; deneysel):</b> OFDM'nin tersine tek bir
+              taşıyıcıda saniyede 3700–4000 BPSK/QPSK sembolü çalar ve koruma aralığı kullanmaz. Oda yankısının sembolleri
+              birbirine karıştırmasını alıcıdaki eşitleyici öğrenip temizler: paket başındaki eğitim dizisinden sonra
+              ileri besleme süzgeci, geçmiş kararlardan beslenen geri besleme süzgeci ve faz döngüsü birlikte (RLS ile)
+              uyarlanır; veri bloklarının arasındaki kısa bilinen sembollerle tazelenir. Bitler K = 7 evrişimli kodla
+              korunur. Su altı akustiğinde yüksek hızın klasik yolu; ~6 ms'den geç gelen yankı gürültü gibi kaldığından
+              yakın mesafe için.
+              <i>Stojanovic, Catipovic ve Proakis 1994; MIL-STD-188-110 (sonda sembolleri); Haykin (RLS).</i>
+            </li>
+            <li>
               <b>Görsel ve dosya:</b> görsel önce seçilen boyuta küçültülüp WebP/JPEG olarak yeniden kodlanır (konum
               gibi bilgiler gönderilmez). İçerik parçalara bölünür, parçalara ek olarak Reed-Solomon eşlik parçaları
               üretilir: alıcı herhangi yeterli sayıda parçayı duyunca dosyayı kurar. Kaçan parçalar varsa gönderen
@@ -270,7 +280,7 @@
             <li>
               <b>Hata düzeltme:</b> çözücü her sembolün ne kadar net olduğunu ölçer. MFSK ve OFDM'de şüpheli baytlar
               Reed-Solomon'a "silinti" olarak verilir; böylece iki kat fazla hata düzeltilir. Diğer yöntemlerde bitler
-              önce bir iç kodla korunur (CSS, DSSS ve OFDM-QAM'de K = 7, JANUS'ta K = 9 evrişimli kod, yumuşak kararlı
+              önce bir iç kodla korunur (CSS, DSSS, OFDM-QAM ve SC-DFE'de K = 7, JANUS'ta K = 9 evrişimli kod, yumuşak kararlı
               Viterbi; FT8'de LDPC ve inanç yayılımı), dışta yine Reed-Solomon vardır. CRC tutmayan veri asla
               gösterilmez.
             </li>

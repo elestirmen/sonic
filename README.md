@@ -4,12 +4,13 @@ Tarayıcıda çalışan, bağımlılıksız bir **akustik modem**. Bir cihaz met
 sese çevirip çalar, diğeri mikrofonla dinleyip çözer. Kurulum, sunucu ya da hesap yok: ses de
 içerik de hiçbir yere gönderilmez, her şey tarayıcıda işlenir.
 
-Yedi ayrı yöntem (mod) sunar; her biri literatürde yerleşik bir kiplemeden gelir. Varsayılan yöntem
-**MFSK**'dir (frekans atlamalı ton kümeleri). Diğer altısı deneyseldir ve üç kipleme ailesini
+Sekiz ayrı yöntem (mod) sunar; her biri literatürde yerleşik bir kiplemeden gelir. Varsayılan yöntem
+**MFSK**'dir (frekans atlamalı ton kümeleri). Diğer yedisi deneyseldir. Altısı üç kipleme ailesini
 evreli/evresiz çiftler hâlinde tamamlar: yayılı spektrumda **CSS** (LoRa tipi chirp) ve **DSSS**
 (doğrudan dizili, RAKE alıcı); frekans kaydırmada **JANUS** (NATO'nun frekans atlamalı ikili FSK'si)
 ve **FT8** (8-GFSK, LDPC); çok taşıyıcıda **DQPSK-OFDM** (diferansiyel) ve **OFDM-QAM** (pilotlu,
-koherent). Hepsi aynı senkron, çerçeve ve Reed-Solomon katmanını paylaşır; böylece aynı kanal
+koherent). Yedincisi tek taşıyıcıdır: **SC-DFE** (koherent PSK ve uyarlamalı karar geri beslemeli
+eşitleyici; su altı akustiğinde yüksek hızın klasik yolu). Hepsi aynı senkron, çerçeve ve Reed-Solomon katmanını paylaşır; böylece aynı kanal
 simülatöründe yan yana karşılaştırılabilirler. Alıcı hangi yöntemin geldiğini kendisi tanır.
 
 **Canlı sürüm:** <https://sonik.perinet.org>
@@ -18,8 +19,8 @@ simülatöründe yan yana karşılaştırılabilirler. Alıcı hangi yöntemin g
 
 ## Özellikler
 
-- **7 yöntem, 35 profil:** 3 frekans bandı (Standart 2–10 kHz, Yüksek 11–17 kHz, Ultrasonik
-  17–20,5 kHz) ve hız kademeleri; net 2,8 B/sn'den 1,3 KB/sn'ye. Mod 1 varsayılan, Mod 2–7 deneysel.
+- **8 yöntem, 38 profil:** 3 frekans bandı (Standart 2–10 kHz, Yüksek 11–17 kHz, Ultrasonik
+  17–20,5 kHz) ve hız kademeleri; net 2,8 B/sn'den 1,3 KB/sn'ye. Mod 1 varsayılan, Mod 2–8 deneysel.
 - **Metin, görsel ve dosya:** görsel seçilen boyuta küçültülüp WebP olarak yeniden kodlanır; her
   tür dosya gönderilebilir (yayın en çok 5 dakika: Turbo ile ~80 KB). Uzun metin kendiliğinden parçalanır.
 - **Canlı görsel önizleme:** alıcıda görsel, bitmesi beklenmeden parçalar geldikçe yukarıdan aşağı
@@ -42,14 +43,15 @@ simülatöründe yan yana karşılaştırılabilirler. Alıcı hangi yöntemin g
 3. **Yöntem**, **Frekans bandı** ve **Hız** seç, **Sese çevir ve çal**'a bas.
 
 Hangi yöntem? Varsayılan **Mod 1 · MFSK**: oda içinde birkaç metrede, elde tutarken ve yüksek seste
-en az sürprizli olanı. Mod 2–7 deneyseldir; Yöntem'in altındaki **Deneysel yöntemleri aç** kutusuyla
+en az sürprizli olanı. Mod 2–8 deneyseldir; Yöntem'in altındaki **Deneysel yöntemleri aç** kutusuyla
 seçilebilir hâle gelir. Kutu açıkken canlı dinleme de deneysel yöntemleri çözer; kapalıyken yalnız
 Mod 1'i dinler (telefonda işlemci payı kalsın diye). Deneysel yöntem kullanılacaksa kutu **alan
 cihazda da** açık olmalı; dosyadan çözme ve simülasyon ise her zaman tüm yöntemleri dener.
 
 Deneyseller arasında, simülatöre göre: gürültü sinyalden güçlüyse ve uzak mesafede **CSS**, **DSSS**
 ya da **FT8** (Sağlam); çok yankılı salonda ve cihaz hareket ederken **JANUS** ve **DSSS**; cihazlar
-yakınken, görsel ve dosya için **OFDM-QAM** (en hızlısı) ya da **DQPSK-OFDM**.
+yakınken, görsel ve dosya için **OFDM-QAM** (en hızlısı) ya da **DQPSK-OFDM**. **SC-DFE** de yakın
+mesafe içindir; karşılaştırma tablolarına henüz eklenmedi.
 
 İpuçları:
 
@@ -223,6 +225,38 @@ tamamlama bitlerini alıcı bildiği için bu blok kısaltılmış kod gibi gü�
   profillerde zarf sabit değildir: hoparlör aynı tepe genliğiyle sürüldüğünde ortalama güç ~1/N'ye düşer;
   simülatördeki SNR ortalama güce göre olduğundan bu kayıp tablolarda görünmez.
 
+### Mod 8 · SC-DFE — tek taşıyıcılı koherent PSK ve uyarlamalı karar geri beslemeli eşitleyici (deneysel)
+
+Su altı akustiğinde yüksek hızın klasik yolu [30]: tek bir taşıyıcıda BPSK ya da Gray kodlu QPSK, kök
+yükseltilmiş kosinüs darbe (β = 0,5), sembol hızı bandı doldurur (standart bantta 4000, yüksek bantta
+3667 sembol/sn). Çok taşıyıcılı yöntemlerin tersine koruma aralığı yoktur; oda yankısının yol açtığı
+semboller arası girişimi (ISI) alıcıdaki eşitleyici öğrenip temizler. Alıcı, Stojanovic, Catipovic ve
+Proakis'in [30] yapısını izler: yarım sembol aralıklı 12 dokulu ileri besleme süzgeci (FF), geçmiş
+kararlardan beslenen 24 dokulu geri besleme süzgeci (FB) ve ikinci dereceden sayısal faz kilitli döngü
+(DPLL, [33]) birlikte, ortalama kare hatayı en aza indirecek biçimde uyarlanır; katsayılar üstel
+ağırlıklı RLS ile (λ = 0,998) [31]. Bitler K = 7 evrişimli kodla [6] korunur, serpiştirilir ve PRBS-15
+ile beyazlatılır; alıcı eşitleyici çıkışından Gauss yaklaşımıyla LLR üretir, yumuşak kararlı Viterbi
+[5] ile çözer.
+
+- **Kazanım:** paket başındaki 128 bilinen sembol bir gecikme penceresinde (senkrondan −2/+6 ms)
+  ilişkilendirilir. En güçlü tepenin −6 dB'lik payındaki ilk yol ana yoldur: ondan sonra gelen
+  yansımalar FB'nin temizleyeceği son imleçler olur. İlintinin fazı DPLL'yi, dizinin iki yarısı
+  arasındaki faz farkı frekansını başlatır; sonra süzgeçler eğitim dizisi boyunca RLS ile eğitilir.
+- **Sondalar:** veri 96 sembollük bloklara bölünür, aralarına 8 bilinen sembol girer (MIL-STD-188-110
+  tek tonlu modemindeki gibi [32]; hız payı %7,7). Eşitleyici her blokta hatasız başvuru alır; karar
+  hatalarının geri beslemede birbirini doğurması (hata yayılımı) bloğu aşmaz.
+- **Zaman ölçeği:** seste taşıyıcı osilatörü yoktur; saat farkı, 44,1 ↔ 48 kHz ve hareket zamanı
+  ölçekler, bu da temel bantta fc ile orantılı bir faz dönmesi olarak görünür. DPLL'nin tümlevci durumu
+  (sembol başı faz artışı ν) bu yüzden zaman ölçeğinin de ölçüsüdür: örnekleme anı her sembolde
+  −ν / (2π·fc) kaydırılır. Ayrı bir zamanlama döngüsü gerekmez.
+- **Yankı:** FB'nin kapsamı 24 sembol, yani ~6 ms'dir. Bunun içindeki yansımaları eşitleyici tamamen
+  temizler (testte 0,75 ve 2 ms'lik iki güçlü yansımada çıkış SINR'ı 65 dB). Daha geç gelen yankı
+  gürültü gibi kalır: RT60 0,5 s'lik odada yankı enerjisinin yalnız ~%15'i ilk 6 ms'dedir. Bu yüzden
+  Mod 6 gibi yakın mesafe içindir.
+- **Stojanovic vd. 1994'ten sapmalar:** tek mikrofon (çok kanallı uzamsal birleştirme yok); ses bandı;
+  eğitim yalnız başta değil, sondalarla da; zaman ölçeği DPLL'den izlenir; kararlar kod çözülmeden
+  geri beslenir (turbo eşitleme yok); dışta Sonik'in RS'si.
+
 ### Ortak katmanlar
 
 ```
@@ -235,11 +269,11 @@ tamamlama bitlerini alıcı bildiği için bu blok kısaltılmış kod gibi gü�
   paylaşır; hangi profil olduğu başlıktaki profil numarasından anlaşılır.
 - **Başlık (sürüm 3):** 12 bit uzunluk, 8 bit profil no, şifreli ve tür bayrakları, 4 bayt RS.
 - **İç kod:** MFSK ve DQPSK-OFDM sert kararlıdır; güveni düşük baytlar RS'ye silinti olarak gider. Diğer
-  yöntemlerde başlık ve veri bitleri ayrıca bir iç kodla korunur: CSS, DSSS ve OFDM-QAM'de K = 7 (171/133),
+  yöntemlerde başlık ve veri bitleri ayrıca bir iç kodla korunur: CSS, DSSS, OFDM-QAM ve SC-DFE'de K = 7 (171/133),
   JANUS'ta K = 9 (753/561) evrişimli kod ve yumuşak kararlı Viterbi; FT8'de LDPC(174, 91) ve inanç yayılımı.
   İç kod bayt başına bir güven de verir; RS silintileri ondan seçilir (birleştirilmiş kod [7]).
 - **Ortak senkron:** yeni yöntemler bantlarındaki mevcut chirp'i paylaşır (DSSS, JANUS ve FT8 CSS'inkini,
-  OFDM-QAM OFDM'ninkini). Karşılaştırmada her yöntem aynı senkronla başlar; dinlerken işlemci yükü de
+  OFDM-QAM ve SC-DFE OFDM'ninkini). Karşılaştırmada her yöntem aynı senkronla başlar; dinlerken işlemci yükü de
   yöntem sayısıyla artmaz.
 - **Görsel ve dosya:** içerik K parçaya bölünür, sütun sütun Reed-Solomon ile M eşlik parçası
   üretilir (paket kayıplarına karşı silinti kodu [12]): alıcı herhangi K farklı parçayı duyunca
@@ -297,6 +331,9 @@ karşılaştırmak için ham hızdan daha dürüsttür.
 | 7 · FT8 | FT8 · Normal | 6,3 | 1,7–8,3 kHz | 80 ms, 4 alt kanal | düşük SNR, gürültülü ortam |
 | 7 · FT8 | FT8 · Hızlı | 9,4 | 1,7–8,3 kHz | 40 ms, 3 alt kanal | oda içi, birkaç metre |
 | 7 · FT8 | FT8 · Yüksek | 9,4 | 11,2–17,3 kHz | 40 ms, 3 alt kanal | düşük SNR, oda içi; daha az duyulur |
+| 8 · SC-DFE | SC-DFE · Hızlı | 210 | 2–8 kHz | BPSK, 4000 Bd | yakın (≤ 1 m), az yankı |
+| 8 · SC-DFE | SC-DFE · Çok hızlı | 420 | 2–8 kHz | QPSK, 4000 Bd | ≤ 50 cm; görsel ve dosya |
+| 8 · SC-DFE | SC-DFE · Yüksek · Çok hızlı | 385 | 11,5–17 kHz | QPSK, 3667 Bd | ≤ 50 cm; daha az duyulur |
 
 ## Karşılaştırma
 
@@ -304,6 +341,8 @@ Kanal simülatöründe paket başarısı (%, standart bant, hücre başına 10 d
 `npm run bench -- --trials 10 --profile …`). Her hücrede aynı mesajlar ve aynı kanal gerçeklemeleri
 kullanılır. SNR bant içidir ve ortalama güce göre ölçülür; DRR doğrudan sesin yankıya oranıdır
 (küçüldükçe uzak).
+
+Mod 8 (SC-DFE) bu tablolara henüz eklenmedi.
 
 **Sağlam (S.) ve Normal (N.) kademeleri**
 
@@ -412,13 +451,13 @@ public/                  yalnız bu klasör yayınlanır
   src/modem.js           verici: bayt → paket → dalga formu (tek ya da çok paket)
   src/receiver.js        alıcı: senkron adayları → paket çözücüler (sert ve yumuşak kararlı)
   src/receiver-worker.js kodlama ve çözme işi (Web Worker)
-  src/mod/               mfsk, css, ofdm, dsss, janus, qam, ft8 (verici + alıcı); registry.js
+  src/mod/               mfsk, css, ofdm, dsss, janus, qam, ft8, dfe (verici + alıcı); registry.js
   src/transfer.js        görsel/dosya: parçalama, paketler arası RS, birleştirme
   src/image.js           görsel küçültme; alınan görselin imzası ve boyutu; yarım görselin canlı çizimi
   src/crypto.js          PBKDF2 + AES-GCM
   src/codec/             crc32, reedsolomon, conv (K = 7/9 evrişimli kod, Viterbi, serpiştirme),
                          ldpc (FT8'in LDPC(174, 91) kodu, inanç yayılımı), framing (başlık, RS, iç kod)
-  src/dsp/               fft, filters, chirp, sync, store, channel
+  src/dsp/               fft, filters, chirp, sync, store, channel, pulse (RRC darbe: DSSS, SC-DFE)
   src/audio/             capture-worklet (AudioWorklet), wav
   src/ui/spectrogram.js
 test/                    node --test; bench.js
@@ -443,9 +482,13 @@ Başka bir kurulumda `DOMAIN`, `REFERENCE` ve betikteki `UPSTREAM` değiştirilm
 
 ## Sınırlar
 
-- Mod 2–7 deneyseldir: simülatörde ölçüldüler, gerçek cihazlarda henüz sınanmadılar. Canlı dinleme
+- Mod 2–8 deneyseldir: simülatörde ölçüldüler, gerçek cihazlarda henüz sınanmadılar. Canlı dinleme
   onları yalnız "Deneysel yöntemleri aç" kutusu açıkken çözer.
 - OFDM ve OFDM-QAM profillerinde yankı arttıkça hata artar; Turbo'lar yakın mesafe içindir.
+- SC-DFE'nin eşitleyicisi ~6 ms'ye kadarki yankıyı temizler, geç yankı gürültü gibi kalır: yakın mesafe
+  içindir. Karar hataları geri beslemede çoğalabilir (hata yayılımı); sondalar bunu blokla sınırlar.
+  Alıcı her sembolde 36 katsayılı RLS çalıştırır: bu makinede tek profil gerçek zamanın ~10 katı
+  hızında çözülüyor, telefonda en ağır yöntem olabilir.
 - JANUS ve FT8 yavaştır: kısa bir mesaj bile 4–16 saniye sürer. FT8'in ve MFSK'nin çok kanallı
   profillerinde zarf sabit değildir; aynı tepe genliğinde ortalama güç düşer (simülatörün SNR'si bunu
   göstermez). DSSS'in tepe/RMS oranı CSS'ten ~2 dB yüksektir.
@@ -516,11 +559,17 @@ Başka bir kurulumda `DOMAIN`, `REFERENCE` ve betikteki `UPSTREAM` değiştirilm
     Codes*, Cambridge University Press, 2010.
 29. L. R. Bahl, J. Cocke, F. Jelinek, J. Raviv, "Optimal decoding of linear codes for minimizing symbol
     error rate," *IEEE Trans. Information Theory*, 20(2):284–287, 1974.
+30. M. Stojanovic, J. Catipovic, J. G. Proakis, "Phase-coherent digital communications for underwater
+    acoustic channels," *IEEE J. Oceanic Engineering*, 19(1):100–111, 1994.
+31. S. Haykin, *Adaptive Filter Theory*, 4. baskı, Prentice Hall, 2002 (üstel ağırlıklı RLS).
+32. MIL-STD-188-110B, *Interoperability and Performance Standards for Data Modems*, ABD Savunma
+    Bakanlığı, 2000 (tek tonlu seri modem: bilinen sonda sembolleriyle karışık veri çerçeveleri).
+33. F. M. Gardner, *Phaselock Techniques*, 3. baskı, Wiley, 2005 (ikinci dereceden döngü kazançları).
 
 ## In English
 
 Sonik is a dependency-free acoustic modem that runs in the browser: one device turns text, an image
-or a file into sound, another decodes it from the microphone. It offers seven literature-based
+or a file into sound, another decodes it from the microphone. It offers eight literature-based
 methods that share one sync, framing and Reed–Solomon layer, so they can be compared side by side in
 the same channel simulator:
 
@@ -545,13 +594,18 @@ the same channel simulator:
   frames with three 7×7 Costas arrays, and FT8's own LDPC(174, 91) code (tables from ft8_lib) with
   belief-propagation decoding. Symbols are scaled to 40–80 ms, 2–4 FT8 signals run side by side, and
   the receiver adds a per-tone echo model and a BCJR pass over each data block.
+- **Mod 8, SC-DFE** is single-carrier coherent BPSK/QPSK (3.7–4 kBd, RRC) with the adaptive decision-
+  feedback equalizer of Stojanovic, Catipovic and Proakis (1994): a fractionally spaced feedforward
+  filter, a feedback filter and a second-order DPLL, jointly adapted by RLS after a training sequence.
+  Known probe symbols between data blocks (as in MIL-STD-188-110) limit error propagation, and the
+  DPLL's frequency state also drives symbol timing, since audio has no separate carrier oscillator.
 
-Mod 1 is the default; Mod 2–7 are experimental. The UI offers them, and live listening decodes them,
+Mod 1 is the default; Mod 2–8 are experimental. The UI offers them, and live listening decodes them,
 only after you tick "Deneysel yöntemleri aç" (enable experimental methods). File decoding and the
 simulator always try all methods.
 
 The methods come in three bands (2–10 kHz, 11–17 kHz, near-ultrasonic) and several speed levels,
-35 profiles in total, from 2.8 B/s to 1.3 kB/s net. In the included channel simulator, at −15 dB
+38 profiles in total, from 2.8 B/s to 1.3 kB/s net. In the included channel simulator, at −15 dB
 in-band SNR the robust levels of CSS, DSSS, JANUS and FT8 decode every packet, while MFSK decodes 20 %.
 In a far reverberant room (RT60 1.2 s, DRR −12 dB), CSS, DSSS and JANUS decode every packet, while FT8's
 fixed 8-tone set suffers from echo. Long-symbol CSS loses timing when the device is shaken, whereas

@@ -12,6 +12,7 @@ import { DsssDemod, dsssSymbolCount, renderDsss } from './dsss.js';
 import { JanusDemod, janusSymbolCount, renderJanus } from './janus.js';
 import { QamDemod, qamSymbolCount, renderQam } from './qam.js';
 import { Ft8Demod, ft8SymbolCount, renderFt8 } from './ft8.js';
+import { DfeDemod, dfeSymbolCount, renderDfe } from './dfe.js';
 
 export const MODS = {
   mfsk: { render: renderMfsk, count: (p, h, n) => mfskSymbolCount(p, n) },
@@ -21,4 +22,5 @@ export const MODS = {
   janus: { render: renderJanus, count: janusSymbolCount, Demod: JanusDemod },
   qam: { render: renderQam, count: qamSymbolCount, Demod: QamDemod },
   ft8: { render: renderFt8, count: ft8SymbolCount, Demod: Ft8Demod },
+  dfe: { render: renderDfe, count: dfeSymbolCount, Demod: DfeDemod },
 };
