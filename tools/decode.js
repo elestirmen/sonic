@@ -63,7 +63,13 @@ for (const e of events) {
     }
     const name = obj.name.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_').replace(/^\.+/, '') || 'sonik-dosya';
     const path = join(flags.cikti ?? '.', name);
-    writeFileSync(path, obj.data);
+    try {
+      writeFileSync(path, obj.data, { flag: 'wx' });
+    } catch (err) {
+      console.error(`✗ dosya kaydedilemedi: ${path} (${err.code === 'EEXIST' ? 'bu ad zaten var; mevcut dosyaya dokunulmadı' : err.message})`);
+      process.exitCode = 1;
+      continue;
+    }
     console.log(`✓ dosya: ${path} (${obj.mime || 'tür yok'}, ${obj.data.length} bayt)\n  ${meta}`);
     continue;
   }

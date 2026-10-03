@@ -1,8 +1,8 @@
-# Sonik: sesle veri aktarımı
+# Sonik: ses ve ekranla veri aktarımı
 
-Tarayıcıda çalışan, bağımlılıksız bir **akustik modem**. Bir cihaz metni, görseli ya da dosyayı
-sese çevirip çalar, diğeri mikrofonla dinleyip çözer. Kurulum, sunucu ya da hesap yok: ses de
-içerik de hiçbir yere gönderilmez, her şey tarayıcıda işlenir.
+Tarayıcıda çalışan bir **akustik modem** ve **ekran/kamera aktarımı**. Bir cihaz metni, görseli
+ya da dosyayı sese çevirip çalar veya değişen QR kareleri gösterir; diğeri mikrofonla ya da
+kamerayla çözer. Kurulum veya hesap gerekmez; aktarım içeriği cihazda işlenir.
 
 Sekiz ayrı yöntem (mod) sunar; her biri literatürde yerleşik bir kiplemeden gelir. Varsayılan yöntem
 **MFSK**'dir (frekans atlamalı ton kümeleri). Diğer yedisi deneyseldir. Altısı üç kipleme ailesini
@@ -31,9 +31,13 @@ simülatöründe yan yana karşılaştırılabilirler. Alıcı hangi yöntemin g
 - **Otomatik uyum:** profil paket başındaki chirp'ten ve başlıktan tanınır; 44,1/48 kHz farkı, saat
   kayması, cihaz hareketi (Doppler) ve oda yankısı hesaba katılır.
 - **İsteğe bağlı şifreleme:** PBKDF2-SHA256 → AES-256-GCM.
+- **Ekran → kamera:** metin, görsel veya en çok 4 MB dosya; standart QR kareleri, 3/6/10 kare/sn,
+  üç yoğunluk ve tam ekran. Yayına geç katılma, eksik ve tekrar kareleri tamamlama; her karede
+  ve tamamlanan içerikte CRC-32. Parola, alım ilerlemesi, kopyalama ve dosya indirme.
 - **Araçlar:** canlı spektrogram, WAV indirme, ses kaydından çözme, tarayıcı içinde oda simülasyonu,
   komut satırı kodlayıcı/çözücü ve kanal koşullarına göre karşılaştırma tablosu.
-- **Bağımlılık yok:** saf JavaScript (ES modülleri), derleme adımı yok. Arayüz Türkçe.
+- **Derleme yok:** saf JavaScript (ES modülleri). QR için lisanslarıyla birlikte yerel Nayuki
+  ve jsQR kütüphaneleri bulunur; npm kurulumu veya CDN gerekmez. Arayüz Türkçe.
 
 ## Kullanım
 
@@ -62,6 +66,36 @@ mesafe içindir; karşılaştırma tablolarına henüz eklenmedi.
   kapatabilir. macOS'ta Denetim Merkezi → Mikrofon Modu **Standart** olmalı ("Ses Yalıtımı" tonları siler).
 - Telefonda dinlerken ekranı açık, sayfayı önde tut; arka planda tarayıcı mikrofonu durdurabilir.
 - Mikrofon için sayfa HTTPS üzerinden (ya da `localhost`'tan) açılmalı.
+
+### Ekrandan kameraya aktarım
+
+Ses ve ekran aynı arayüzün iki **kanalıdır**: sayfanın üstündeki seçiciden **Ses** ya da **Ekran**'ı
+seç. İçerik (metin, görsel, dosya), parola, son alınan kutusu ve geçmiş iki kanalda ortaktır;
+yalnız gönderme ayarları ve alıcı değişir (Ses: Dinle + spektrogram, Ekran: Tara + kamera).
+
+1. İki cihazda da **Ekran** kanalını seç. Alıcıda **Tara** kartında **Kamerayı aç**'a bas ve kamera izni ver.
+2. Göndericide metni yaz ya da görsel veya dosya seç (en çok 4 MB). Görsel boyutu seçeneği ekran
+   kanalında Orta, Büyük, HD (≤ 1600 px) ve Orijinal'dir.
+3. **QR yayınını başlat**'a bas; gerekirse **Tam ekran**'ı aç. Alıcı kamerayı QR'ye tutsun.
+4. Alıcı tamamlandığını gösterince **Yayını durdur**. Sonuç, sesle gelenlerle aynı kutuda görünür.
+
+Tahmin, içeriğin kaç QR karesi tuttuğunu ve ilk turun süresini gösterir. Varsayılan 6 kare/sn ve
+normal yoğunlukla başla. Okuma zorlaşırsa önce kare hızını (yayın sürerken de değişir), sonra
+yoğunluğu düşür; QR'nin beyaz kenarı da kamera içinde kalsın. Yayın sürerken içerik ve yoğunluk
+kilitlidir. Şifreli içerik parolasız alınırsa **Parolayı gir** ile Gönder kartındaki parola alanına
+geçilir; doğru parola girilince kareleri yeniden okutmadan açılır.
+
+Kamera için HTTPS veya `localhost` gerekir. Sayfa arka plana geçerse ya da kanal değişirse
+yayın/kamera durur; alınmış eksik parçalar sayfa açık kaldığı sürece korunur. **Sıfırla** yeni bir
+yayına geçer. Kamera görüntüsü yüklenmez; QR okuma yerel Web Worker'da çalışır. Tam ekran API'si
+olmayan tarayıcılarda (iPhone Safari) QR sayfayı kaplayan bir katmanda büyütülür.
+
+Sonik'in görsel protokolü standart QR içine ikili parçalar yerleştirir. İlk tur doğrudan veri
+parçalarıdır; devamında LT/XOR kurtarma kareleri üretilir. Bu yüzden alıcı yayının ortasında
+başlayabilir. QR-Stream veya UR ile protokol uyumluluğu yoktur; alıcıda Sonik gerekir.
+Gerçek hız ekran, kamera ve ışığa bağlıdır; fiziksel telefonlar arasında hız ölçümü yapılmadı.
+[Araştırma ve protokol notları](docs/visual-transfer-research.md),
+[yerel kütüphane kaynakları ve lisansları](public/src/vendor/README.md).
 
 ## Yöntemler
 
@@ -436,6 +470,9 @@ node tools/encode.js --dosya foto.webp cikti.wav --profil turbo
 node tools/decode.js kayit.wav [--parola …] [--cikti klasör]
 ```
 
+Komut satırı çözücüsü aynı adlı mevcut dosyanın üzerine yazmaz; çakışmayı bildirip
+başarısız çıkış kodu döndürür. Böyle bir durumda farklı bir çıktı klasörü seçin.
+
 Kanal simülatörü (`public/src/dsp/channel.js`) hoparlör/mikrofon tepkisi, oda yankısı (RT60, DRR),
 cihaz hareketi (titreme, sallama, sabit hızla yaklaşma → Doppler), 44,1↔48 kHz farkı, saat kayması,
 gürültü, konuşma girişimi ve kırpmayı taklit eder; testler, `bench` ve arayüzdeki "Simülasyonla
@@ -459,18 +496,20 @@ public/                  yalnız bu klasör yayınlanır
                          ldpc (FT8'in LDPC(174, 91) kodu, inanç yayılımı), framing (başlık, RS, iç kod)
   src/dsp/               fft, filters, chirp, sync, store, channel, pulse (RRC darbe: DSSS, SC-DFE)
   src/audio/             capture-worklet (AudioWorklet), wav
+  src/visual/            ekran/kamera: protokol, QR çizimi, Worker ve arayüz
+  src/vendor/            yerel Nayuki ve jsQR; kaynak/lisans notları
   src/ui/spectrogram.js
 test/                    node --test; bench.js
 tools/                   encode, decode, deploy
-docs/                    README görseli
+docs/                    README görseli, görsel aktarım araştırması
 docker-compose.yml, nginx.conf
 ```
 
 ## Yayınlama
 
-`public/` klasörü herhangi bir statik sunucuyla yayınlanabilir; mikrofon için HTTPS gerekir.
+`public/` klasörü herhangi bir statik sunucuyla yayınlanabilir; mikrofon ve kamera için HTTPS gerekir.
 Depodaki yapılandırma bir `nginx:alpine` konteyneri (`sonik-web`) kullanır; `nginx.conf` önbelleği
-ETag ile doğrular ve sıkı bir CSP uygular:
+ETag ile doğrular, sıkı bir CSP uygular ve mikrofon/kamera erişimini yalnız aynı kökene açar:
 
 ```sh
 docker compose up -d
@@ -568,10 +607,10 @@ Başka bir kurulumda `DOMAIN`, `REFERENCE` ve betikteki `UPSTREAM` değiştirilm
 
 ## In English
 
-Sonik is a dependency-free acoustic modem that runs in the browser: one device turns text, an image
-or a file into sound, another decodes it from the microphone. It offers eight literature-based
-methods that share one sync, framing and Reed–Solomon layer, so they can be compared side by side in
-the same channel simulator:
+Sonik runs in the browser and transfers text, images or files using sound or animated QR frames.
+Another device decodes them with its microphone or camera. Its acoustic modem offers eight
+literature-based methods that share one sync, framing and Reed–Solomon layer, so they can be
+compared side by side in the same channel simulator:
 
 - **Mod 1, MFSK** uses frequency-hopped tone sets with Reed–Solomon erasure decoding. It is the
   default.
@@ -616,3 +655,12 @@ image is still arriving, the receiver draws it row by row from the packets heard
 into WebCodecs `ImageDecoder`). Optional
 AES-GCM encryption is available. Everything stays on the device. The UI is in Turkish. Try it at
 <https://sonik.perinet.org>.
+
+A second transport channel, **Ekran** (screen), transfers up to 4 MB through a screen and camera, using
+standard binary QR frames at 3/6/10 fps. Systematic frames followed by LT/XOR repair frames support
+missed frames and late joins; frame and content CRC-32 checks verify reconstruction. It shares the
+content, password, result box and history with the sound channel, offers optional AES-GCM
+encryption, and decodes locally in a Worker using vendored
+Nayuki (MIT) and jsQR (Apache-2.0), with no build step or CDN. Both devices use Sonik; its visual
+protocol is independent of UR. Browser tests use synthetic camera streams; physical devices
+have not yet been measured. See [research notes](docs/visual-transfer-research.md).

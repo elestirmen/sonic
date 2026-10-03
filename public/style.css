@@ -63,12 +63,18 @@ select {
 }
 
 .top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px 24px;
   max-width: 1080px;
   margin: 0 auto;
   padding: 24px 16px 8px;
 }
 
 .brand {
+  flex: 1 1 420px;
   display: flex;
   gap: 14px;
   align-items: center;
@@ -669,6 +675,8 @@ output {
 }
 
 .last-text {
+  max-height: 16em; /* ekranla gelen uzun metin kutuyu sayfa boyu uzatmasın */
+  overflow-y: auto;
   font-size: 1.15rem;
   font-weight: 600;
   white-space: pre-wrap;
@@ -757,6 +765,8 @@ output {
 }
 
 .item-text {
+  max-height: 9em;
+  overflow-y: auto;
   margin-top: 4px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -894,4 +904,292 @@ output {
 
 [hidden] {
   display: none !important;
+}
+
+/* ---------------------------------------------------------------- kanal: ses / ekran */
+
+.channel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  flex: none;
+  min-width: 320px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.channel button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.channel button:hover:not([aria-checked='true']) {
+  background: var(--surface-2);
+}
+
+.channel svg {
+  width: 24px;
+  height: 24px;
+  flex: none;
+}
+
+.channel span {
+  display: grid;
+  line-height: 1.2;
+}
+
+.channel strong {
+  color: var(--text);
+  font-size: 0.98rem;
+}
+
+.channel small {
+  font-size: 0.75rem;
+}
+
+.channel button[aria-checked='true'] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.channel button[aria-checked='true'] strong {
+  color: inherit;
+}
+
+.channel small {
+  white-space: nowrap;
+}
+
+@media (max-width: 840px) {
+  .channel {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 420px) {
+  .channel button {
+    gap: 8px;
+    padding: 8px 10px;
+  }
+
+  .channel small {
+    font-size: 0.7rem;
+  }
+}
+
+.note {
+  margin: 10px 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.note:empty {
+  display: none;
+}
+
+.tabs button:disabled,
+.btn:has(> input:disabled),
+textarea:disabled,
+input[type='password']:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ---------------------------------------------------------------- QR yayını (gönderen) */
+
+.visual-stage {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff; /* QR'nin sessiz kenarı: koyu temada da beyaz */
+  color: #1f2937;
+}
+
+.visual-stage canvas {
+  display: block;
+  width: 100%;
+  max-width: 520px;
+  height: auto;
+  margin: 0 auto;
+  image-rendering: pixelated;
+}
+
+.visual-stage .bar,
+.visual-stage-foot {
+  width: 100%;
+  max-width: 520px;
+  margin: 10px auto 0;
+}
+
+.visual-stage .bar {
+  flex: none;
+  height: 6px;
+  background: #e5e7eb;
+}
+
+.visual-stage .bar > div {
+  background: #0f766e;
+}
+
+.visual-stage-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.visual-stage-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.visual-stage .btn {
+  border-color: #d5dae0;
+  background: #f3f5f7;
+  color: #111;
+}
+
+.visual-stage .fs-only {
+  display: none;
+}
+
+.visual-stage:fullscreen,
+.visual-stage.expanded {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 16px;
+  border: 0;
+  border-radius: 0;
+}
+
+.visual-stage:fullscreen canvas,
+.visual-stage.expanded canvas,
+.visual-stage:fullscreen .bar,
+.visual-stage.expanded .bar,
+.visual-stage:fullscreen .visual-stage-foot,
+.visual-stage.expanded .visual-stage-foot {
+  width: min(94vw, calc(100dvh - 120px));
+  max-width: none;
+}
+
+.visual-stage:fullscreen .fs-only,
+.visual-stage.expanded .fs-only {
+  display: inline-flex;
+}
+
+html.stage-open {
+  overflow: hidden;
+}
+
+/* ---------------------------------------------------------------- kamera (alan) */
+
+.viewfinder {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  max-height: 380px;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 10px;
+  background: rgb(8 10 22);
+}
+
+.viewfinder video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.viewfinder-idle {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 16px;
+  color: rgb(255 255 255 / 70%);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.viewfinder-idle svg {
+  width: 52px;
+  height: 52px;
+  opacity: 0.55;
+}
+
+.viewfinder-guide {
+  --c: rgb(255 255 255 / 85%);
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  height: 74%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 4px;
+  box-shadow: 0 0 0 100vmax rgb(0 0 0 / 28%);
+  background-image:
+    linear-gradient(var(--c), var(--c)), linear-gradient(var(--c), var(--c)),
+    linear-gradient(var(--c), var(--c)), linear-gradient(var(--c), var(--c)),
+    linear-gradient(var(--c), var(--c)), linear-gradient(var(--c), var(--c)),
+    linear-gradient(var(--c), var(--c)), linear-gradient(var(--c), var(--c));
+  background-repeat: no-repeat;
+  background-size: 28px 3px, 3px 28px, 28px 3px, 3px 28px, 28px 3px, 3px 28px, 28px 3px, 3px 28px;
+  background-position: left top, left top, right top, right top, left bottom, left bottom, right bottom, right bottom;
+  pointer-events: none;
+}
+
+.viewfinder[data-state='off'] video,
+.viewfinder[data-state='off'] .viewfinder-guide,
+.viewfinder[data-state='on'] .viewfinder-idle {
+  display: none;
+}
+
+.viewfinder[data-scan='rx'] .viewfinder-guide {
+  --c: #fbbf24;
+}
+
+.viewfinder[data-scan='ok'] .viewfinder-guide {
+  --c: #4ade80;
+}
+
+.transfer-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.transfer-foot .btn {
+  min-height: 28px;
+  padding: 2px 8px;
+}
+
+.btn.primary.active svg {
+  display: none;
 }

@@ -9,7 +9,7 @@ import {
   encodePayload,
   payloadLayout,
 } from '../public/src/codec/framing.js';
-import { getProfile } from '../public/src/profiles.js';
+import { PROFILES, getProfile } from '../public/src/profiles.js';
 import { rng } from '../public/src/dsp/channel.js';
 
 const rand = rng(42);
@@ -123,4 +123,29 @@ test('Veri bölümü: silinti bilgisi düzeltme gücünü ikiye katlar', () => {
   const res = decodePayload(bad, conf, 60, profile);
   assert.ok(res.ok);
   assert.deepEqual(res.message, msg);
+});
+
+test('Veri bölümü: tüm geçerli uzunluklarda RS blokları 255 bayta sığar', () => {
+  for (const p of PROFILES) {
+    for (let n = 1; n <= p.maxBytes; n++) {
+      const layout = payloadLayout(n, p);
+      assert.ok(layout.blocks.every((b) => b.k + b.p <= 255), `${p.key}: ${n} bayt`);
+      assert.equal(layout.blocks.reduce((s, b) => s + b.k, 0), n + 4);
+      assert.equal(layout.blocks.reduce((s, b) => s + b.p, 0), layout.parity);
+    }
+  }
+});
+
+test('Veri bölümü: QAM ve DFE sınır uzunlukları hata düzeltmeyle çözülür', () => {
+  for (const p of PROFILES.filter((p) => p.mod === 'qam' || p.mod === 'dfe')) {
+    for (const n of [458, 459, 460, 690, 691, 921, 922, 923]) {
+      const msg = randomBytes(n);
+      const coded = encodePayload(msg, p);
+      coded[0] ^= 0x55;
+      coded[coded.length - 1] ^= 0x81;
+      const res = decodePayload(coded, new Float32Array(coded.length).fill(10), n, p);
+      assert.ok(res.ok, `${p.key}: ${n} bayt`);
+      assert.deepEqual(res.message, msg);
+    }
+  }
 });

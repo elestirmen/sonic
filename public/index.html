@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Sonik · sesle veri aktarımı</title>
+    <title>Sonik · ses ve ekranla veri aktarımı</title>
     <meta
       name="description"
-      content="Tarayıcıda çalışan akustik modem: metni, görseli ya da dosyayı sese çevirir, başka bir cihaz mikrofonla dinleyip çözer. Sunucu yok; her şey tarayıcıda."
+      content="Metni, görseli veya dosyayı sesle ya da değişen QR kareleriyle aktar; diğer cihaz mikrofon veya kamerayla çözsün. İçerik cihazda işlenir."
     />
     <meta name="theme-color" content="#0f766e" />
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
@@ -29,8 +29,24 @@
         </svg>
         <div>
           <h1>Sonik</h1>
-          <p>Sesle veri aktarımı: metni, görseli ya da dosyayı sese çevir, başka bir cihaz dinleyip çözsün.</p>
+          <p>Metni, görseli veya dosyayı sesle ya da değişen QR kareleriyle aktar; diğer cihaz dinleyip veya kamerayla okuyup çözsün.</p>
         </div>
+      </div>
+      <div class="channel" id="channel-picker" role="radiogroup" aria-label="Aktarım kanalı">
+        <button type="button" role="radio" data-key="sound" aria-checked="true">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z" fill="currentColor" />
+            <path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+          <span><strong>Ses</strong><small>hoparlör → mikrofon</small></span>
+        </button>
+        <button type="button" role="radio" data-key="screen" aria-checked="false" tabindex="-1">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+            <path d="M14 14h3v3h-3zM17 17h3v3h-3zM17 14h3v2h-3zM14 18h2v2h-2z" fill="currentColor" />
+          </svg>
+          <span><strong>Ekran</strong><small>QR → kamera</small></span>
+        </button>
       </div>
     </header>
 
@@ -50,7 +66,7 @@
         <div id="pane-text" role="tabpanel" aria-labelledby="tab-text">
           <label class="field">
             <span class="label">Mesaj</span>
-            <textarea id="message" rows="4" placeholder="Gönderilecek mesajı yaz…">Merhaba! Bu mesaj sesle geldi 🙂</textarea>
+            <textarea id="message" rows="4" placeholder="Gönderilecek mesajı yaz…">Merhaba! Bu mesaj Sonik ile geldi 🙂</textarea>
             <span class="hint" id="text-hint"><span id="byte-count">0 bayt</span> <span id="duration-estimate"></span></span>
           </label>
         </div>
@@ -84,32 +100,46 @@
           <span class="hint file-estimate" id="file-estimate"></span>
         </div>
 
-        <div class="field">
-          <span class="label" id="method-label">Yöntem</span>
-          <div class="segmented method" id="method-picker" role="radiogroup" aria-labelledby="method-label"></div>
-          <span class="hint" id="method-detail"></span>
-          <label class="check">
-            <input id="experimental" type="checkbox" />
-            <span>Deneysel yöntemleri aç <small>(Mod 2–8: CSS, OFDM, DSSS, JANUS, OFDM-QAM, FT8, SC-DFE. Sonuç ortama ve cihaza göre değişebilir; alan cihazda da açık olmalı.)</small></span>
+        <div data-channel="sound">
+          <div class="field">
+            <span class="label" id="method-label">Yöntem</span>
+            <div class="segmented method" id="method-picker" role="radiogroup" aria-labelledby="method-label"></div>
+            <span class="hint" id="method-detail"></span>
+            <label class="check">
+              <input id="experimental" type="checkbox" />
+              <span>Deneysel yöntemleri aç <small>(Mod 2–8: CSS, OFDM, DSSS, JANUS, OFDM-QAM, FT8, SC-DFE. Sonuç ortama ve cihaza göre değişebilir; alan cihazda da açık olmalı.)</small></span>
+            </label>
+          </div>
+          <div class="field">
+            <span class="label" id="band-label">Frekans bandı</span>
+            <div class="segmented three" id="band-picker" role="radiogroup" aria-labelledby="band-label"></div>
+          </div>
+          <div class="field">
+            <span class="label" id="speed-label">Hız</span>
+            <div class="segmented n3" id="speed-picker" role="radiogroup" aria-labelledby="speed-label"></div>
+            <span class="hint" id="profile-summary"></span>
+          </div>
+
+          <label class="field inline">
+            <span class="label">Ses</span>
+            <input id="volume" type="range" min="5" max="100" value="80" />
+            <output id="volume-out">%80</output>
           </label>
         </div>
-        <div class="field">
-          <span class="label" id="band-label">Frekans bandı</span>
-          <div class="segmented three" id="band-picker" role="radiogroup" aria-labelledby="band-label"></div>
-        </div>
-        <div class="field">
-          <span class="label" id="speed-label">Hız</span>
-          <div class="segmented n3" id="speed-picker" role="radiogroup" aria-labelledby="speed-label"></div>
-          <span class="hint" id="profile-summary"></span>
+
+        <div data-channel="screen" hidden>
+          <div class="field">
+            <span class="label" id="density-label">QR yoğunluğu</span>
+            <div class="segmented three" id="density-picker" role="radiogroup" aria-labelledby="density-label"></div>
+          </div>
+          <div class="field">
+            <span class="label" id="fps-label">Kare hızı</span>
+            <div class="segmented three" id="fps-picker" role="radiogroup" aria-labelledby="fps-label"></div>
+            <span class="hint" id="screen-summary"></span>
+          </div>
         </div>
 
-        <label class="field inline">
-          <span class="label">Ses</span>
-          <input id="volume" type="range" min="5" max="100" value="80" />
-          <output id="volume-out">%80</output>
-        </label>
-
-        <details class="lock">
+        <details class="lock" id="lock">
           <summary>Parolayla şifrele (isteğe bağlı)</summary>
           <label class="field">
             <input id="password" type="password" autocomplete="off" placeholder="Boş bırakırsan şifrelenmez" />
@@ -117,48 +147,107 @@
           </label>
         </details>
 
-        <div class="actions">
-          <button id="send-btn" class="btn primary" type="button">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
-            Sese çevir ve çal
-          </button>
-          <button id="wav-btn" class="btn" type="button">WAV indir</button>
+        <div data-channel="sound">
+          <div class="actions">
+            <button id="send-btn" class="btn primary" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+              Sese çevir ve çal
+            </button>
+            <button id="wav-btn" class="btn" type="button">WAV indir</button>
+          </div>
+          <label class="check" id="loop-field" hidden>
+            <input id="loop" type="checkbox" />
+            <span>Durdurana kadar tekrarla <small>(kaçan parçalar sonraki turda tamamlanır)</small></span>
+          </label>
+          <div class="playback" id="playback" hidden>
+            <div class="bar"><div id="play-progress"></div></div>
+            <span class="play-label" id="play-label"></span>
+            <button id="stop-btn" class="btn small" type="button">Durdur</button>
+          </div>
         </div>
-        <label class="check" id="loop-field" hidden>
-          <input id="loop" type="checkbox" />
-          <span>Durdurana kadar tekrarla <small>(kaçan parçalar sonraki turda tamamlanır)</small></span>
-        </label>
-        <div class="playback" id="playback" hidden>
-          <div class="bar"><div id="play-progress"></div></div>
-          <span class="play-label" id="play-label"></span>
-          <button id="stop-btn" class="btn small" type="button">Durdur</button>
+
+        <div data-channel="screen" hidden>
+          <div class="actions">
+            <button id="visual-start" class="btn primary" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+              <span id="visual-start-label">QR yayınını başlat</span>
+            </button>
+          </div>
+          <p class="note" id="visual-send-status" role="status" aria-live="polite"></p>
+          <div id="visual-stage" class="visual-stage" hidden>
+            <canvas id="visual-qr" aria-label="Veriyi taşıyan QR kareleri"></canvas>
+            <div class="bar"><div id="visual-round"></div></div>
+            <div class="visual-stage-foot">
+              <span id="visual-frame-label"></span>
+              <span class="visual-stage-actions">
+                <button id="visual-fullscreen" class="btn small" type="button">Tam ekran</button>
+                <button id="visual-stop" class="btn small fs-only" type="button">Yayını durdur</button>
+              </span>
+            </div>
+          </div>
         </div>
       </section>
 
       <section class="card" aria-labelledby="listen-title">
         <h2 id="listen-title">Dinle</h2>
-        <div class="listen-head">
-          <button id="listen-btn" class="btn primary" type="button">Dinlemeyi başlat</button>
-          <div class="status" id="status" data-kind="idle" role="status" aria-live="polite">
-            <span class="dot" aria-hidden="true"></span><span id="status-text">Hazır</span>
+        <div data-channel="sound">
+          <div class="listen-head">
+            <button id="listen-btn" class="btn primary" type="button">Dinlemeyi başlat</button>
+            <div class="status" id="status" data-kind="idle" role="status" aria-live="polite">
+              <span class="dot" aria-hidden="true"></span><span id="status-text">Hazır</span>
+            </div>
+          </div>
+
+          <div class="spectro">
+            <canvas id="spectrogram" aria-label="Canlı spektrogram"></canvas>
+            <div class="axis" id="spectro-axis" aria-hidden="true"></div>
+            <button id="range-btn" class="chip" type="button" title="Frekans aralığı">0–10 kHz</button>
+          </div>
+          <div class="meter" title="Giriş seviyesi"><div id="level"></div></div>
+          <div class="bar receive" id="rx-bar" hidden><div id="rx-progress"></div></div>
+
+          <div class="transfer" id="transfer" hidden>
+            <canvas class="transfer-preview" id="transfer-preview" aria-label="Alınmakta olan görsel" hidden></canvas>
+            <div class="transfer-head">
+              <span id="transfer-label"></span>
+              <span class="hint" id="transfer-count"></span>
+            </div>
+            <div class="bar"><div id="transfer-progress"></div></div>
           </div>
         </div>
 
-        <div class="spectro">
-          <canvas id="spectrogram" aria-label="Canlı spektrogram"></canvas>
-          <div class="axis" id="spectro-axis" aria-hidden="true"></div>
-          <button id="range-btn" class="chip" type="button" title="Frekans aralığı">0–10 kHz</button>
-        </div>
-        <div class="meter" title="Giriş seviyesi"><div id="level"></div></div>
-        <div class="bar receive" id="rx-bar" hidden><div id="rx-progress"></div></div>
-
-        <div class="transfer" id="transfer" hidden>
-          <canvas class="transfer-preview" id="transfer-preview" aria-label="Alınmakta olan görsel" hidden></canvas>
-          <div class="transfer-head">
-            <span id="transfer-label"></span>
-            <span class="hint" id="transfer-count"></span>
+        <div data-channel="screen" hidden>
+          <div class="listen-head">
+            <button id="visual-camera" class="btn primary" type="button">Kamerayı aç</button>
+            <div class="status" id="visual-status" data-kind="idle" role="status" aria-live="polite">
+              <span class="dot" aria-hidden="true"></span><span id="visual-status-text">Hazır</span>
+            </div>
           </div>
-          <div class="bar"><div id="transfer-progress"></div></div>
+
+          <div class="viewfinder" id="visual-viewfinder" data-state="off">
+            <video id="visual-video" autoplay muted playsinline aria-label="QR alıcı kamera görüntüsü"></video>
+            <div class="viewfinder-idle" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
+                <path d="M14 14h3v3h-3zM17 17h3v3h-3zM17 14h3v2h-3zM14 18h2v2h-2z" fill="currentColor" />
+              </svg>
+              <span>Kamerayı aç, diğer ekrandaki QR'yi bu çerçeveye al</span>
+            </div>
+            <span class="viewfinder-guide" aria-hidden="true"></span>
+            <button id="visual-switch" class="chip" type="button" hidden>Kamerayı değiştir</button>
+          </div>
+
+          <div class="transfer" id="visual-transfer" hidden>
+            <div class="transfer-head">
+              <span id="visual-transfer-label">QR yayını alınıyor</span>
+              <span class="hint" id="visual-count"></span>
+            </div>
+            <div class="bar"><div id="visual-progress"></div></div>
+            <div class="transfer-foot">
+              <span class="hint" id="visual-transfer-note"></span>
+              <button id="visual-reset" class="btn small ghost" type="button">Sıfırla</button>
+            </div>
+          </div>
         </div>
 
         <div class="last" id="last-message" hidden>
@@ -167,13 +256,14 @@
           <div class="last-foot">
             <span class="last-meta" id="last-meta"></span>
             <span class="last-actions">
+              <button id="unlock-last" class="btn small ghost" type="button" hidden>Parolayı gir</button>
               <button id="save-last" class="btn small ghost" type="button" hidden>İndir</button>
               <button id="copy-last" class="btn small ghost" type="button">Kopyala</button>
             </span>
           </div>
         </div>
 
-        <div class="actions secondary">
+        <div class="actions secondary" data-channel="sound">
           <label class="btn small">
             Dosyadan çöz
             <input id="file-input" type="file" accept="audio/*,.wav" hidden />
@@ -182,6 +272,10 @@
             Simülasyonla dene
           </button>
         </div>
+        <p class="note" data-channel="screen" hidden>
+          Kamera görüntüsü yalnız bu cihazda işlenir. Yayının ortasında başlayabilirsin; kaçan kareler kurtarma
+          kareleriyle tamamlanır.
+        </p>
       </section>
 
       <section class="card wide" aria-labelledby="history-title">
@@ -189,7 +283,7 @@
           <h2 id="history-title">Geçmiş</h2>
           <button id="clear-history" class="btn small ghost" type="button">Temizle</button>
         </div>
-        <p class="empty" id="history-empty">Henüz mesaj yok. Bir cihazda <b>Dinle</b>, diğerinde <b>Gönder</b>.</p>
+        <p class="empty" id="history-empty">Henüz mesaj yok. İki cihazda aynı kanalı seç; birinde <b>Dinle</b> ya da <b>Tara</b>, diğerinde <b>Gönder</b>.</p>
         <ol id="history" class="history"></ol>
       </section>
 
@@ -278,6 +372,14 @@
               "tekrarla" ile çalmayı sürdürür, alıcı eksikleri sonraki turda tamamlar.
             </li>
             <li>
+              <b>Ekran → kamera (QR):</b> aynı içerik ses yerine ekranda art arda gösterilen QR kareleriyle de
+              gönderilebilir. İlk tur doğrudan veri parçalarıdır; ardından gelen kurtarma kareleri birkaç parçanın
+              XOR'unu taşır (LT çeşmesi kodu). Alıcı yayının ortasında başlayabilir, kaçırdığı kareleri sonrakilerden
+              tamamlar. Her kare ve içeriğin tamamı CRC-32 ile denetlenir; kamera görüntüsü bu cihazda, Worker'da
+              çözülür. Saniyede birkaç KB taşır, varsayılan ses yönteminin yüz katından fazla; ama iki cihazın birbirini görmesi gerekir.
+              <i>Luby 2002 (LT kodları); ISO/IEC 18004 (QR); QR-Stream, Blockchain Commons UR çizgisi.</i>
+            </li>
+            <li>
               <b>Hata düzeltme:</b> çözücü her sembolün ne kadar net olduğunu ölçer. MFSK ve OFDM'de şüpheli baytlar
               Reed-Solomon'a "silinti" olarak verilir; böylece iki kat fazla hata düzeltilir. Diğer yöntemlerde bitler
               önce bir iç kodla korunur (CSS, DSSS, OFDM-QAM ve SC-DFE'de K = 7, JANUS'ta K = 9 evrişimli kod, yumuşak kararlı
@@ -304,8 +406,13 @@
             dinlerken ekranı açık ve sayfayı önde tut; arka planda tarayıcı mikrofonu durdurabilir.
           </p>
           <p class="tips">
-            <b>Gizlilik:</b> sunucu yok; ses de mesaj da hiçbir yere gönderilmez, her şey bu tarayıcıda işlenir. Ama
-            ses bir yayındır: yakındaki herkes mesajı çözebilir. Gizli içerik için parola kullan.
+            <b>QR ile:</b> gönderen ekranın parlaklığını artır, kamerayı 20–40 cm'den tut; QR'nin beyaz kenarı da
+            çerçevede kalsın. Okuma zorlaşırsa önce kare hızını, sonra yoğunluğu düşür ya da QR'yi tam ekran aç.
+            Kamera ve QR yayını sayfa arka plana geçince durur; alınan parçalar sayfa açık kaldıkça korunur.
+          </p>
+          <p class="tips">
+            <b>Gizlilik:</b> sunucu yok; ses, kamera görüntüsü ve mesaj hiçbir yere gönderilmez, her şey bu tarayıcıda işlenir. Ama
+            ses de QR kareleri de bir yayındır: yakındaki herkes duyup ya da görüp çözebilir. Gizli içerik için parola kullan.
           </p>
         </div>
       </details>

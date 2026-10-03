@@ -88,6 +88,16 @@ export function payloadLayout(length, profile) {
     const p = Math.floor(parity / blockCount) + (b < parity % blockCount ? 1 : 0);
     blocks.push({ k, p });
   }
+  // Veri ve paritenin yuvarlama fazlaları aynı blokta 256 bayt yapabilir.
+  // Yalnız taşan blokların paritesini boş yeri olan bloklara kaydır; daha önce
+  // geçerli olan paketlerin blok düzeni ve toplam parite miktarı değişmesin.
+  for (const block of blocks) {
+    while (block.k + block.p > 255) {
+      const spare = blocks.find((b) => b.k + b.p < 255);
+      block.p--;
+      spare.p++;
+    }
+  }
   return { dataLen, parity, blocks, total: dataLen + parity };
 }
 

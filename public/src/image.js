@@ -6,6 +6,7 @@ export const IMAGE_PRESETS = [
   { key: 'kucuk', name: 'Küçük', maxDim: 160, maxBytes: 2500 },
   { key: 'orta', name: 'Orta', maxDim: 320, maxBytes: 7000 },
   { key: 'buyuk', name: 'Büyük', maxDim: 720, maxBytes: 20000 },
+  { key: 'hd', name: 'HD', maxDim: 1600, maxBytes: 200000 }, // yalnız ekran kanalında sunulur
   { key: 'orijinal', name: 'Orijinal', maxDim: 0, maxBytes: 0 },
 ];
 

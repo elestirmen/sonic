@@ -1,4 +1,6 @@
 // Arayüz: gönderme (metin, görsel, dosya), dinleme, dosyadan çözme, simülasyon ve geçmiş.
+// İki kanal aynı içeriği, parolayı, sonuç kutusunu ve geçmişi paylaşır: ses (bu dosya) ve
+// ekran/kamera (visual/ui.js).
 // Alınan içerik dışarıdan gelen güvenilmez veridir: metin DOM'a yalnız textContent ile
 // yazılır, görsel ancak imzası bilinen bir raster biçimse gösterilir, dosya yalnız indirilir.
 
@@ -10,6 +12,8 @@ import { IMAGE_PRESETS, PartialImage, compressImage, loadImage, sniffImage } fro
 import { decodeWav, encodeWav } from './audio/wav.js';
 import { Spectrogram } from './ui/spectrogram.js';
 import { ENCRYPTION_OVERHEAD, decryptBytes, encryptBytes } from './crypto.js';
+import { initVisual } from './visual/ui.js';
+import { MAX_VISUAL_FILE } from './visual/protocol.js';
 
 const $ = (id) => document.getElementById(id);
 const utf8 = new TextEncoder();
@@ -22,8 +26,22 @@ const WAV_RATE = 48000;
 const MAX_SECONDS = 300; // daha uzun bir yayın telefonda yüzlerce MB ses belleği ister
 const MAX_FILE = Math.max(...PROFILES.map((p) => maxContentBytes(p.chunkBytes)));
 const PREVIEW_DIM = 720; // canlı önizleme tuvalinin en uzun kenarı
+const DENSITIES = [
+  { key: 192, name: 'Seyrek' },
+  { key: 384, name: 'Normal' },
+  { key: 512, name: 'Yoğun' },
+];
+const FRAME_RATES = [
+  { key: 3, name: 'Yavaş' },
+  { key: 6, name: 'Normal' },
+  { key: 10, name: 'Hızlı' },
+];
+// Ses yavaş: küçük görseller. Ekran saniyede KB'lar taşır: büyük ve HD de anlamlı.
+const QUALITY_KEYS = { sound: ['kucuk', 'orta', 'buyuk', 'orijinal'], screen: ['orta', 'buyuk', 'hd', 'orijinal'] };
 
 const ui = {
+  channelPicker: $('channel-picker'),
+  listenTitle: $('listen-title'),
   tabText: $('tab-text'),
   tabFile: $('tab-file'),
   paneText: $('pane-text'),
@@ -51,9 +69,15 @@ const ui = {
   summary: $('profile-summary'),
   volume: $('volume'),
   volumeOut: $('volume-out'),
+  densityPicker: $('density-picker'),
+  fpsPicker: $('fps-picker'),
+  screenSummary: $('screen-summary'),
+  lock: $('lock'),
   password: $('password'),
   sendBtn: $('send-btn'),
   wavBtn: $('wav-btn'),
+  visualStart: $('visual-start'),
+  visualStartLabel: $('visual-start-label'),
   loopField: $('loop-field'),
   loop: $('loop'),
   playback: $('playback'),
@@ -79,6 +103,7 @@ const ui = {
   lastText: $('last-text'),
   lastMeta: $('last-meta'),
   copyLast: $('copy-last'),
+  unlockLast: $('unlock-last'),
   saveLast: $('save-last'),
   fileInput: $('file-input'),
   selftestBtn: $('selftest-btn'),
@@ -89,10 +114,14 @@ const ui = {
 };
 
 const state = {
+  channel: 'sound', // 'sound' | 'screen'
   profile: 'normal',
   experimental: false,
   mode: 'text',
   quality: 'orta',
+  qualityBy: { sound: 'orta', screen: 'buyuk' },
+  density: 384, // QR karesi başına bayt
+  fps: 6,
   attachment: null,
   ctx: null,
   analyser: null,
@@ -110,7 +139,10 @@ const state = {
   assembler: new ObjectAssembler(),
   lostChunks: 0,
   preview: null, // { id, name, image } alınmakta olan görselin canlı önizlemesi
+  lastItem: null, // sonuç kutusundaki öğe; büyük dosyanın verisi geçmişte saklanmasa da burada durur
 };
+
+let visual = null; // ekran kanalı (init'te kurulur)
 
 const spectrogram = new Spectrogram(ui.canvas, ui.axis);
 
@@ -136,11 +168,15 @@ function saveJson(key, value) {
 
 function savePrefs() {
   saveJson(PREFS_KEY, {
+    channel: state.channel,
     profile: state.profile,
     experimental: state.experimental,
     volume: Number(ui.volume.value),
     mode: state.mode,
-    quality: state.quality,
+    quality: state.qualityBy.sound,
+    visualQuality: state.qualityBy.screen,
+    density: state.density,
+    fps: state.fps,
     loop: ui.loop.checked,
   });
 }
@@ -198,6 +234,7 @@ function badge(text) {
 }
 
 const modeOf = (p) => MODES.find((m) => m.key === p.mod);
+const profileName = (key) => key === 'visual' ? 'Ekran · QR' : getProfile(key).name;
 
 function renderMethods() {
   const modes = MODES.filter((m) => (state.experimental || !m.experimental) && PROFILES.some((p) => p.mod === m.key));
@@ -231,13 +268,23 @@ function setExperimental(on, persist = true) {
 
 function renderPickers() {
   ui.bandPicker.replaceChildren(...BANDS.map((b) => choice(b.key, b.name, '', () => selectBand(b.key))));
+  ui.densityPicker.replaceChildren(...DENSITIES.map((d) => choice(d.key, d.name, `${d.key} B/kare`, () => selectDensity(d.key))));
+  ui.fpsPicker.replaceChildren(...FRAME_RATES.map((f) => choice(f.key, f.name, `${f.key} kare/sn`, () => selectFps(f.key))));
+  renderQuality();
+  setExperimental(state.experimental, false);
+  selectDensity(state.density, false);
+  selectFps(state.fps, false);
+}
+
+/** Görsel boyutu seçenekleri kanala göre değişir; her kanal kendi seçimini hatırlar. */
+function renderQuality() {
+  const keys = QUALITY_KEYS[state.channel];
   ui.qualityPicker.replaceChildren(
-    ...IMAGE_PRESETS.map((q) =>
+    ...IMAGE_PRESETS.filter((q) => keys.includes(q.key)).map((q) =>
       choice(q.key, q.name, q.maxDim ? `≤ ${q.maxDim} px` : 'değiştirme', () => selectQuality(q.key)),
     ),
   );
   for (const b of ui.qualityPicker.children) b.setAttribute('aria-checked', String(b.dataset.key === state.quality));
-  setExperimental(state.experimental, false);
 }
 
 function renderProfileTable() {
@@ -331,10 +378,61 @@ function selectSpeed(speed) {
 }
 
 function selectQuality(key) {
-  state.quality = key;
+  state.quality = state.qualityBy[state.channel] = key;
   for (const b of ui.qualityPicker.children) b.setAttribute('aria-checked', String(b.dataset.key === key));
   savePrefs();
   prepareAttachment();
+}
+
+function selectDensity(key, persist = true) {
+  state.density = key;
+  for (const b of ui.densityPicker.children) b.setAttribute('aria-checked', String(b.dataset.key === String(key)));
+  updateScreenSummary();
+  updateEstimate();
+  if (persist) savePrefs();
+}
+
+/** Kare hızı yayın sürerken de değiştirilebilir; sonraki kare yeni hızla gelir. */
+function selectFps(key, persist = true) {
+  state.fps = key;
+  for (const b of ui.fpsPicker.children) b.setAttribute('aria-checked', String(b.dataset.key === String(key)));
+  updateScreenSummary();
+  updateEstimate();
+  if (persist) savePrefs();
+}
+
+function updateScreenSummary() {
+  ui.screenSummary.textContent =
+    `Saniyede ≈ ${formatBytes(state.density * state.fps)} ham veri. ` +
+    'Okuma zorlaşırsa önce kare hızını, sonra yoğunluğu düşür.';
+}
+
+/**
+ * Kanal: ses ya da ekran. Gönder ve Dinle/Tara kartları seçilen kanalın ayarlarını gösterir;
+ * içerik, parola, sonuç ve geçmiş ortaktır. Kanal değişince açık mikrofon, kamera ve yayın kapanır.
+ */
+function setChannel(channel, persist = true) {
+  if (channel !== 'screen') channel = 'sound';
+  const changed = state.channel !== channel;
+  state.channel = channel;
+  for (const b of ui.channelPicker.querySelectorAll('[role="radio"]')) {
+    const on = b.dataset.key === channel;
+    b.setAttribute('aria-checked', String(on));
+    b.tabIndex = on ? 0 : -1;
+  }
+  for (const el of document.querySelectorAll('[data-channel]')) el.hidden = el.dataset.channel !== channel;
+  ui.listenTitle.textContent = channel === 'screen' ? 'Tara' : 'Dinle';
+  if (changed) {
+    if (channel === 'screen') {
+      stopPlayback();
+      stopListening();
+    } else visual?.stopAll();
+  }
+  state.quality = state.qualityBy[channel];
+  renderQuality();
+  if (changed && state.attachment) prepareAttachment(); // boyut ve sınır kanala göre
+  else updateEstimate();
+  if (persist) savePrefs();
 }
 
 function setMode(mode, persist = true) {
@@ -358,6 +456,7 @@ const bodyBytes = (name, mime, n) => 3 + Math.min(255, utf8.encode(name).length)
  * null: gönderilecek bir şey yok; { tooBig } : bu profille taşınamaz.
  */
 function currentPlan() {
+  if (state.channel === 'screen') return screenPlan();
   const p = getProfile(state.profile);
   const enc = ui.password.value ? ENCRYPTION_OVERHEAD : 0;
   let content;
@@ -377,6 +476,29 @@ function currentPlan() {
   return plan;
 }
 
+/** Ekran kanalı: içerik her zaman gövde olarak paketlenir ve QR karelerine bölünür. */
+function screenPlan() {
+  const enc = ui.password.value ? ENCRYPTION_OVERHEAD : 0;
+  let data;
+  let bytes;
+  if (state.mode === 'text') {
+    data = utf8.encode(ui.message.value).length;
+    if (data === 0) return null;
+    bytes = bodyBytes('', TEXT_MIME, data) + enc;
+  } else {
+    const f = state.attachment?.prepared;
+    if (!f) return null;
+    data = f.data.length;
+    bytes = bodyBytes(f.name, f.mime, data) + enc;
+  }
+  if (data > MAX_VISUAL_FILE) return { tooBig: true, bytes };
+  const frames = Math.ceil(bytes / state.density);
+  return { screen: true, bytes, frames, seconds: frames / state.fps };
+}
+
+const screenText = (plan) =>
+  plan.frames === 1 ? 'tek QR karesi' : `${plan.frames} QR karesi · ilk tur ≈ ${formatSeconds(plan.seconds)}`;
+
 /** Nesnenin parçalanışı; gönderirken de aynı hesap kullanılır. */
 function objectPlan(contentBytes, p) {
   return planChunks(contentBytes, p.chunkBytes, (bytes, count) => estimateStreamDuration(new Array(count).fill(bytes), p));
@@ -389,6 +511,7 @@ function planDuration(plan) {
 function updateEstimate() {
   const plan = currentPlan();
   const ok = !!plan && !plan.tooBig;
+  const screen = state.channel === 'screen';
   if (state.mode === 'text') {
     const n = utf8.encode(ui.message.value).length;
     ui.byteCount.textContent = formatBytes(n);
@@ -396,12 +519,18 @@ function updateEstimate() {
     ui.estimate.textContent = !plan
       ? ''
       : plan.tooBig
-        ? 'bu profil için çok uzun'
-        : `≈ ${formatSeconds(planDuration(plan))}${plan.single ? '' : ` · ${plan.k + plan.m} paket`}`;
+        ? screen ? 'ekranla en çok 4 MB' : 'bu profil için çok uzun'
+        : screen
+          ? `≈ ${screenText(plan)}`
+          : `≈ ${formatSeconds(planDuration(plan))}${plan.single ? '' : ` · ${plan.k + plan.m} paket`}`;
   } else {
     ui.fileEstimate.classList.toggle('over', !!plan?.tooBig);
     ui.fileEstimate.textContent = !plan
       ? ''
+      : screen
+        ? plan.tooBig
+          ? `${formatBytes(plan.bytes)}: ekranla en çok 4 MB gönderilebilir. Görseli küçült ya da başka dosya seç.`
+          : `${formatBytes(plan.bytes)} · ${screenText(plan)}`
       : plan.tooLong
         ? `${formatBytes(plan.bytes)}: bu profille ≈ ${formatSeconds(plan.seconds)} sürer (en çok ${MAX_SECONDS / 60} dk). Görseli küçült ya da daha hızlı bir profil seç.`
         : plan.tooBig
@@ -412,6 +541,10 @@ function updateEstimate() {
   ui.sendBtn.disabled = !ok || !!state.playing || state.busy;
   ui.wavBtn.disabled = !ok || state.busy;
   ui.selftestBtn.disabled = !ok || state.busy;
+  const broadcasting = !!visual?.sending;
+  ui.visualStart.disabled = broadcasting ? visual.preparing : !ok;
+  ui.visualStart.classList.toggle('active', broadcasting);
+  ui.visualStartLabel.textContent = broadcasting ? 'Yayını durdur' : 'QR yayınını başlat';
 }
 
 // ---------------------------------------------------------------- ek (görsel/dosya)
@@ -420,6 +553,7 @@ const isImageFile = (file) => /^image\/(png|jpeg|webp|gif|avif|bmp|heic|heif)$/.
 
 async function setAttachment(file) {
   if (!file) return;
+  if (visual?.sending) return warn('QR yayını sürerken içerik değiştirilemez; önce yayını durdur.');
   setMode('file');
   const att = { file, name: file.name || 'dosya', mime: file.type || 'application/octet-stream', img: null, prepared: null };
   state.attachment = att;
@@ -462,7 +596,8 @@ async function prepareAttachment() {
       const ext = res.type === 'image/webp' ? 'webp' : 'jpg';
       prepared = { name: att.name.replace(/\.[^.]*$/, '') + `.${ext}`, mime: res.type, data: res.bytes, width: res.width, height: res.height };
     } else {
-      if (att.file.size > MAX_FILE) throw new Error(`dosya çok büyük (${formatBytes(att.file.size)}); en çok ${formatBytes(MAX_FILE)}`);
+      const limit = state.channel === 'screen' ? MAX_VISUAL_FILE : MAX_FILE;
+      if (att.file.size > limit) throw new Error(`dosya çok büyük (${formatBytes(att.file.size)}); ${state.channel === 'screen' ? 'ekranla' : 'sesle'} en çok ${formatBytes(limit)}`);
       prepared = { name: att.name, mime: att.mime, data: new Uint8Array(await att.file.arrayBuffer()) };
       if (att.img) Object.assign(prepared, { width: att.img.naturalWidth, height: att.img.naturalHeight });
     }
@@ -565,7 +700,15 @@ async function buildJob() {
 }
 
 async function send() {
+  if (state.channel === 'screen') return sendScreen();
   if (state.playing || state.busy) return;
+  const plan = currentPlan();
+  if (!plan) return warn('Gönderilecek içerik yok.');
+  if (plan.tooBig) {
+    return warn(plan.tooLong
+      ? `Yayın en çok ${MAX_SECONDS / 60} dakika olabilir. Metni kısaltın ya da daha hızlı bir profil seçin.`
+      : 'İçerik bu profil için çok büyük. Daha hızlı bir profil seçin.');
+  }
   const ctx = audio(); // kullanıcı dokunuşu sırasında: iOS sesi ancak böyle açar
   const profile = getProfile(state.profile);
   if (!supportsProfile(profile, ctx.sampleRate)) {
@@ -586,8 +729,10 @@ async function send() {
       encrypted: job.encrypted,
       amplitude: 0.9,
     });
-    play(res.samples, res.duration, loop);
-    addHistory({ dir: 'out', profile: profile.key, encrypted: job.encrypted, ...job.item });
+    if (state.channel === 'sound') { // hazırlanırken ekran kanalına geçildiyse çalma
+      play(res.samples, res.duration, loop);
+      addHistory({ dir: 'out', profile: profile.key, encrypted: job.encrypted, ...job.item });
+    }
     if (job.payloads.length > 1) {
       setStatus(state.listening ? 'listening' : 'idle', state.listening ? 'Dinleniyor…' : 'Hazır');
     }
@@ -597,6 +742,28 @@ async function send() {
     state.busy = false;
     updateEstimate();
   }
+}
+
+/** Ekran kanalı: aynı içerik QR kareleriyle; düğme yayın sürerken durdurur. */
+function sendScreen() {
+  if (!visual) return;
+  if (visual.sending) return visual.stop();
+  const plan = currentPlan();
+  if (!plan) return warn('Gönderilecek içerik yok.');
+  if (plan.tooBig) return warn('Ekranla en çok 4 MB gönderilebilir.');
+  const f = state.attachment?.prepared;
+  const object = state.mode === 'text'
+    ? { name: '', mime: TEXT_MIME, data: utf8.encode(ui.message.value) }
+    : { name: f.name, mime: f.mime, data: f.data };
+  visual.start(object, { password: ui.password.value, blockBytes: state.density });
+}
+
+/** QR yayını sürerken gösterilen içerik ve yoğunluk sabit kalır. */
+function lockContent(on) {
+  for (const el of [ui.message, ui.filePick, ui.cameraPick, ui.attachmentClear, ui.tabText, ui.tabFile, ui.password]) {
+    el.disabled = on;
+  }
+  for (const b of [...ui.qualityPicker.children, ...ui.densityPicker.children]) b.disabled = on;
 }
 
 function play(samples, duration, loop) {
@@ -685,7 +852,18 @@ function worker() {
   if (!state.worker) {
     const w = new Worker(new URL('./receiver-worker.js', import.meta.url), { type: 'module' });
     w.onmessage = (e) => onWorkerMessage(e.data);
-    w.onerror = (e) => warn(`Çözücü başlatılamadı: ${e.message ?? 'bilinmeyen hata'}`);
+    const fail = (error) => {
+      if (state.worker !== w) return;
+      state.worker = null;
+      w.terminate();
+      const requests = [...state.requests.values()];
+      state.requests.clear();
+      for (const req of requests) req.reject(error);
+      stopListening();
+      warn(error.message);
+    };
+    w.onerror = (e) => fail(new Error(`Çözücü durdu: ${e.message ?? 'bilinmeyen hata'}`));
+    w.onmessageerror = () => fail(new Error('Çözücü yanıtı okunamadı. İşlemi yeniden deneyin.'));
     state.worker = w;
   }
   return state.worker;
@@ -780,7 +958,12 @@ function request(msg, transfer = []) {
   const id = state.nextRequest++;
   return new Promise((resolve, reject) => {
     state.requests.set(id, { resolve, reject });
-    worker().postMessage({ ...msg, id }, transfer);
+    try {
+      worker().postMessage({ ...msg, id }, transfer);
+    } catch (err) {
+      state.requests.delete(id);
+      reject(err);
+    }
   });
 }
 
@@ -1077,6 +1260,7 @@ function downloadItem(item) {
 }
 
 function showLast(item) {
+  state.lastItem = item;
   ui.last.hidden = false;
   ui.last.classList.toggle('locked', !!item.locked);
   const file = item.kind === 'file' && !item.locked;
@@ -1088,24 +1272,37 @@ function showLast(item) {
   } else ui.lastImage.removeAttribute('src');
   ui.lastText.textContent = item.locked ?? (file ? fileText(item) : item.text);
   ui.lastText.classList.toggle('file-name', !!file);
-  ui.lastMeta.textContent = [getProfile(item.profile).name, item.encrypted ? 'şifreli' : '', statsText(item)]
+  ui.lastMeta.textContent = [profileName(item.profile), item.encrypted ? 'şifreli' : '', statsText(item)]
     .filter(Boolean)
     .join(' · ');
   ui.copyLast.hidden = !!item.locked || file;
   ui.copyLast.onclick = () => copyText(item.text, ui.copyLast);
   ui.saveLast.hidden = !file || !item.data;
   ui.saveLast.onclick = () => downloadItem(item);
+  ui.unlockLast.hidden = !item.locked || !item.data;
+}
+
+/** Kilitli sonuç: parola alanı Gönder kartında; açıp oraya götür. Parola girilince kayıt açılır. */
+function askPassword() {
+  ui.lock.open = true;
+  ui.password.focus();
+  ui.password.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
 }
 
 // ---------------------------------------------------------------- geçmiş
 
-function addHistory(item) {
-  const entry = { ...item, time: Date.now() };
+function historyEntry(item) {
+  const entry = { ...item };
   if (entry.data && entry.data.length > (HISTORY_DATA_LIMIT * 4) / 3) {
     entry.data = undefined; // çok büyük: yalnız bu oturumda indirilebilir (son mesaj kutusu)
     entry.dropped = true;
   }
-  state.history.unshift(entry);
+  return entry;
+}
+
+function addHistory(item) {
+  item.time ??= Date.now(); // sonuç kutusundaki öğe ile geçmiş kaydını eşler
+  state.history.unshift(historyEntry(item));
   state.history.length = Math.min(state.history.length, HISTORY_LIMIT);
   saveHistory();
   renderHistory();
@@ -1138,7 +1335,7 @@ function renderHistory() {
       meta.className = 'meta';
       meta.textContent = [
         new Date(item.time).toLocaleTimeString('tr-TR'),
-        getProfile(item.profile).name,
+        profileName(item.profile),
         item.encrypted ? 'şifreli' : '',
         statsText(item),
       ]
@@ -1176,31 +1373,49 @@ function renderHistory() {
   );
 }
 
-/** Parola değişince kilitli (şifreli) kayıtlar yeniden açılmaya çalışılır. */
+/** Şifresi çözülmüş baytlarla kilitli kaydın açık hâli; bozuksa null. */
+function openSealed(item, bytes) {
+  const base = { dir: item.dir, profile: item.profile, encrypted: true, stats: item.stats, time: item.time };
+  if (item.sealed !== 'object') return { ...base, kind: 'text', text: utf8Text(bytes) };
+  try {
+    return { ...describeObject(unpackBody(bytes), base), time: item.time };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Parola değişince kilitli (şifreli) kayıtlar yeniden açılmaya çalışılır. Sonuç kutusundaki öğe
+ * ayrıca açılır: büyük dosyanın şifreli verisi geçmişte saklanmamış olabilir.
+ */
 async function unlockHistory() {
   let changed = false;
   for (let i = 0; i < state.history.length; i++) {
     const item = state.history[i];
     if (!item.locked || !item.data) continue;
-    const sealed = fromBase64(item.data);
-    const opened = await unseal(sealed);
-    if (opened.locked) continue;
-    const base = { dir: item.dir, profile: item.profile, encrypted: true, stats: item.stats, time: item.time };
-    if (item.sealed === 'object') {
-      try {
-        state.history[i] = { ...describeObject(unpackBody(opened.bytes), base), time: item.time };
-      } catch {
-        continue;
-      }
-    } else {
-      state.history[i] = { ...base, kind: 'text', text: utf8Text(opened.bytes) };
-    }
+    const opened = await unseal(fromBase64(item.data));
+    const next = !opened.locked && openSealed(item, opened.bytes);
+    if (!next) continue;
+    state.history[i] = historyEntry(next);
     changed = true;
+  }
+  const last = state.lastItem;
+  if (last?.locked && last.data && !ui.last.hidden) {
+    const opened = await unseal(fromBase64(last.data));
+    const next = !opened.locked && openSealed(last, opened.bytes);
+    if (next && state.lastItem === last) {
+      showLast(next);
+      if (last.profile === 'visual') visual?.setStatus('ok', 'Parola doğru; içerik açıldı', 5000);
+      const i = state.history.findIndex((h) => h.time === last.time && h.locked);
+      if (i >= 0) {
+        state.history[i] = historyEntry(next);
+        changed = true;
+      }
+    }
   }
   if (changed) {
     saveHistory();
     renderHistory();
-    if (state.history[0] && !ui.last.hidden) showLast(state.history[0]);
   }
 }
 
@@ -1248,16 +1463,51 @@ function init() {
   if (prefs.profile && PROFILES.some((p) => p.key === prefs.profile)) state.profile = prefs.profile;
   state.experimental = prefs.experimental === true;
   if (Number.isFinite(prefs.volume)) ui.volume.value = prefs.volume;
-  if (IMAGE_PRESETS.some((q) => q.key === prefs.quality)) state.quality = prefs.quality;
+  if (QUALITY_KEYS.sound.includes(prefs.quality)) state.qualityBy.sound = prefs.quality;
+  if (QUALITY_KEYS.screen.includes(prefs.visualQuality)) state.qualityBy.screen = prefs.visualQuality;
+  if (DENSITIES.some((d) => d.key === prefs.density)) state.density = prefs.density;
+  if (FRAME_RATES.some((f) => f.key === prefs.fps)) state.fps = prefs.fps;
+  state.channel = prefs.channel === 'screen' ? 'screen' : 'sound';
+  state.quality = state.qualityBy[state.channel];
   ui.loop.checked = !!prefs.loop;
   ui.volumeOut.textContent = `%${ui.volume.value}`;
-  state.history = loadJson(HISTORY_KEY, []).filter((h) => h && h.profile && PROFILES.some((p) => p.key === h.profile));
+  state.history = loadJson(HISTORY_KEY, []).filter((h) => h && h.profile && (h.profile === 'visual' || PROFILES.some((p) => p.key === h.profile)));
 
   renderPickers();
   renderProfileTable();
   renderHistory();
   setMode(prefs.mode === 'file' ? 'file' : 'text', false);
   checkEnvironment();
+
+  visual = initVisual({
+    fps: () => state.fps,
+    onSendChange() {
+      lockContent(visual.sending);
+      updateEstimate();
+    },
+    async onReceived(content, { encrypted }) {
+      const item = await receivedObject(content, { profile: 'visual', encrypted }, 'in');
+      showLast(item);
+      addHistory(item);
+      const what = item.locked ? 'Şifreli içerik alındı' : item.kind === 'file' ? `${item.image ? 'Görsel' : 'Dosya'} alındı` : 'Metin alındı';
+      visual.setStatus(item.locked ? 'rx' : 'ok', what, 8000);
+    },
+    onSent(object, meta) {
+      addHistory(describeObject(object, { dir: 'out', profile: 'visual', ...meta }));
+    },
+  });
+  setChannel(state.channel, false);
+  for (const b of ui.channelPicker.querySelectorAll('[role="radio"]')) {
+    b.addEventListener('click', () => setChannel(b.dataset.key));
+    b.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      const next = b.dataset.key === 'sound' ? 'screen' : 'sound';
+      setChannel(next);
+      ui.channelPicker.querySelector(`[data-key="${next}"]`).focus();
+    });
+  }
+  ui.visualStart.addEventListener('click', sendScreen);
+  ui.unlockLast.addEventListener('click', askPassword);
 
   ui.message.addEventListener('input', updateEstimate);
   ui.password.addEventListener('input', updateEstimate);
