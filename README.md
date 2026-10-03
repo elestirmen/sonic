@@ -15,7 +15,7 @@ simülatöründe yan yana karşılaştırılabilirler. Alıcı hangi yöntemin g
 
 **Canlı sürüm:** <https://sonik.perinet.org>
 
-![Sonik arayüzü: yedi yöntem, bant ve hız seçimi; görsel OFDM-QAM Turbo ile simülasyonda gönderilip çözülmüş](docs/sonik.webp)
+![Sonik arayüzü, Ekran kanalı: Gönder kartı bir görseli QR kareleriyle yayınlıyor, Tara kartı kamerayla okuyor; önceki aktarımda alınan görsel sonuç kutusunda](docs/sonik.webp)
 
 ## Özellikler
 
@@ -98,6 +98,13 @@ Gerçek hız ekran, kamera ve ışığa bağlıdır; fiziksel telefonlar arasın
 [yerel kütüphane kaynakları ve lisansları](public/src/vendor/README.md).
 
 ## Yöntemler
+
+Arayüzdeki **Nasıl çalışır?** bölümü her yöntemin bu tarayıcıda üretilen gerçek sinyalini
+spektrogram olarak gösterir; kısa bir örneği de dinletir. Aynı bölümde bir MFSK paketinin
+bölümleri (chirp, başlık, veri + CRC-32, RS eşlik) ve kamerayla gerçekten okunabilen küçük bir
+QR yayını vardır.
+
+![Nasıl çalışır? bölümü: MFSK paketinin bölümleri işaretlenmiş spektrogramı ve sekiz yöntemin gerçek sinyallerinden spektrogram kartları](docs/sonik-yontemler.webp)
 
 ### Mod 1 · MFSK — frekans atlamalı ton kümeleri (varsayılan)
 
@@ -498,10 +505,10 @@ public/                  yalnız bu klasör yayınlanır
   src/audio/             capture-worklet (AudioWorklet), wav
   src/visual/            ekran/kamera: protokol, QR çizimi, Worker ve arayüz
   src/vendor/            yerel Nayuki ve jsQR; kaynak/lisans notları
-  src/ui/spectrogram.js
+  src/ui/                spectrogram (canlı şelale), about ("Nasıl çalışır?": gerçek sinyal spektrogramları, mini QR yayını)
 test/                    node --test; bench.js
 tools/                   encode, decode, deploy
-docs/                    README görseli, görsel aktarım araştırması
+docs/                    README görselleri, görsel aktarım araştırması
 docker-compose.yml, nginx.conf
 ```
 

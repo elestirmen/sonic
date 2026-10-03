@@ -10,7 +10,7 @@ const STOPS = [
   [1, [252, 253, 191]],
 ];
 
-function buildPalette() {
+export function buildPalette() {
   const lut = new Uint8ClampedArray(256 * 3);
   for (let i = 0; i < 256; i++) {
     const t = i / 255;

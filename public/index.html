@@ -240,13 +240,13 @@
           <div class="transfer" id="visual-transfer" hidden>
             <div class="transfer-head">
               <span id="visual-transfer-label">QR yayını alınıyor</span>
-              <span class="hint" id="visual-count"></span>
+              <span class="transfer-side">
+                <span class="hint" id="visual-count"></span>
+                <button id="visual-reset" class="btn small ghost" type="button">Sıfırla</button>
+              </span>
             </div>
             <div class="bar"><div id="visual-progress"></div></div>
-            <div class="transfer-foot">
-              <span class="hint" id="visual-transfer-note"></span>
-              <button id="visual-reset" class="btn small ghost" type="button">Sıfırla</button>
-            </div>
+            <p class="note" id="visual-transfer-note"></p>
           </div>
         </div>
 
@@ -287,132 +287,327 @@
         <ol id="history" class="history"></ol>
       </section>
 
-      <details class="card wide about">
-        <summary><h2>Nasıl çalışır?</h2></summary>
+      <details class="card wide about" id="about">
+        <summary>
+          <span class="about-title">
+            <h2>Nasıl çalışır?</h2>
+            <small>Sekiz ses yöntemi ve QR kareleri: gerçek sinyallerin spektrogramları, dinlenebilir örnekler, canlı bir mini yayın</small>
+          </span>
+        </summary>
         <div class="about-body">
-          <p>
-            Sonik bir <b>akustik modem</b>. Veri baytlara çevrilir, sonuna CRC-32 eklenir ve Reed-Solomon kodu
-            ile korunur, sonra seçilen profile göre sese dönüştürülür.
+          <p class="lead">
+            Sonik bir <b>modem</b>: baytları bir taşıyıcıya yazar, öbür uçta geri okur. Taşıyıcı ya <b>ses</b>
+            (hoparlör → hava → mikrofon) ya da <b>ışık</b> (ekran → kamera). Sunucu yok; aşağıdaki her adım bu
+            tarayıcıda çalışır.
           </p>
-          <pre class="packet" aria-label="Paket yapısı">
-│ chirp │ boşluk │ başlık (uzunluk, tür, sürüm) │ veri + CRC-32 │ RS parite │
-  senkron          ← yöntemin sembolleri: ton, chirp, çip ya da alt taşıyıcı →</pre>
-          <ul>
-            <li>
-              <b>Senkron:</b> paket bir <i>chirp</i> (frekans süpürmesi) ile başlar. Alıcı gelen sesi bu şablonla
-              ilişkilendirip paketin başladığı anı milisaniyenin altında bulur. Aynı bantta benzer yöntemler bir chirp'i
-              paylaşır; hangi profil olduğu başlıktaki profil numarasından anlaşılır.
-            </li>
-            <li>
-              <b>Mod 1 · MFSK (frekans atlamalı ton kümeleri, varsayılan):</b> her 4 bit 16 frekanstan biri olarak çalınır;
-              aynı anda 1–4 ton. Ardışık semboller dönüşümlü ton kümeleri kullanır, oda yankısı önceki sembolü
-              uzatsa da çözülen kümeye düşmez. Hata düzeltme sert kararlı Reed-Solomon ve silintiler.
-              <i>MFSK16 (Greenman), ggwave (Gerganov) çizgisi.</i>
-            </li>
-            <li>
-              <b>Mod 2 · CSS (LoRa tipi chirp yayılı spektrum, deneysel):</b> her sembol bandı baştan sona tarayan bir chirp;
-              bilgi başlangıç frekansının döngüsel kaymasında (SF bit). Alıcı dechirp + FFT ile tek bir tepe arar:
-              gürültü ve dağınık yankı 2<sup>SF</sup> kutuya yayılırken sinyal tek kutuda toplanır. Bitler K = 7
-              evrişimli kodla korunur, çözücü yumuşak kararlı Viterbi kullanır; zaman ve Doppler, chirp'in sarma
-              anındaki faz sıçramasından ayrılıp izlenir. En düşük SNR ve en uzak mesafe için.
-              <i>Vangelista 2017 (LoRa); Lee vd. 2015 (havadan akustik chirp); Viterbi 1967.</i>
-            </li>
-            <li>
-              <b>Mod 3 · DQPSK-OFDM (zaman-frekans serpiştirmeli, deneysel):</b> bantta 100 Hz aralıklı onlarca alt
-              taşıyıcı birden çalar, her biri bir önceki kullanımına göre faz farkıyla 1–2 bit taşır. Taşıyıcılar
-              bloklara bölünür ve semboller bloklar arasında atlar; bir blok, eski yankısı sönünce yeniden
-              kullanılır. MFSK'nin 5–15 katı hız; yakın mesafe için. <i>DAB (ETSI EN 300 401) çizgisi.</i>
-            </li>
-            <li>
-              <b>Mod 4 · DSSS (doğrudan dizili yayılı spektrum, deneysel):</b> her kodlu bit 31/63 çiplik sözde rastgele
-              bir kesimle ya da 802.11'deki 11 çipli Barker dizisiyle yayılır, diferansiyel BPSK ile çalınır. Alıcı biti
-              dizinin kaydırılmış kopyalarıyla ilişkilendirip yankı yollarını ayrı ayrı görür; RAKE alıcı en güçlü yolları
-              toplar. Bitler K = 7 evrişimli kodla korunur; saat farkı ve hareket, gecikme kilitli döngüyle izlenir.
-              Gürültülü ve uzak ortam, elde tutma ve ultrasonik bant için.
-              <i>IEEE 802.11 (1997) DSSS; Price ve Green 1958 (RAKE); Proakis.</i>
-            </li>
-            <li>
-              <b>Mod 5 · JANUS (frekans atlamalı ikili FSK, deneysel):</b> bant 13 ton çiftine bölünür; her kodlu bit,
-              atlama dizisinin seçtiği çiftte iki tondan biri olarak çalınır ve bir çift ancak 13 çipte bir yeniden
-              duyulur. Bitler K = 9 evrişimli kodla korunur; alıcı ton enerjilerinden, önceki kullanımın yankısını hesaba
-              katan LLR'ler üretir ve çipin kendi yankı kuyruğunu da toplar (yumuşak kararlı Viterbi). Çok yankılı salon,
-              uzak mesafe ve elde tutma için; yavaş.
-              <i>NATO STANAG 4748 (JANUS); Potter vd. 2014; Proakis (kare-yasa birleştirme).</i>
-            </li>
-            <li>
-              <b>Mod 6 · OFDM-QAM (pilotlu, koherent OFDM, deneysel):</b> Mod 3'ün taşıyıcı ızgarasında, ama bilgi her
-              taşıyıcının kendi genlik ve fazında (QPSK, 16-QAM). Paket başındaki eğitim sembolleri kanalı ölçer; her
-              sembolde 4 pilot ve verilen kararlar, saat farkının ve hareketin yarattığı faz eğimini izler. Bitler K = 7
-              evrişimli kodla korunur, alıcı yumuşak kararlı Viterbi kullanır. Cihazlar yakınken en hızlısı (Turbo'da net
-              ~1,3 KB/sn); yankılı oda için taşıyıcıları 3 blokta atlatan profil.
-              <i>IEEE 802.11a çizgisi; Tosato ve Bisaglia 2002; van de Beek vd. 1995.</i>
-            </li>
-            <li>
-              <b>Mod 7 · FT8 (8-GFSK, Costas senkronu, LDPC; deneysel):</b> amatör telsizin zayıf sinyal kipi FT8'in havaya
-              uyarlanmışı: sekiz tonlu, sürekli fazlı GFSK, sembol başına 3 bit. 79 sembollük çerçevedeki üç Costas dizisi
-              zamanı ve Doppler'i verir; 58 veri sembolü bir LDPC(174, 91) kod sözcüğüdür, inanç yayılımıyla çözülür. Hız
-              için 2–4 FT8 sinyali yan yana çalar. Alıcı, önceki sembolün yankısını ton başına öğrenip kafeste (BCJR)
-              hesaba katar. Düşük SNR için; çok yankılı salonda zorlanır.
-              <i>Franke, Somerville ve Taylor 2020 (FT8); Goba, ft8_lib; Costas 1984; Gallager 1962; Bahl vd. 1974.</i>
-            </li>
-            <li>
-              <b>Mod 8 · SC-DFE (tek taşıyıcılı PSK, uyarlamalı eşitleyici; deneysel):</b> OFDM'nin tersine tek bir
-              taşıyıcıda saniyede 3700–4000 BPSK/QPSK sembolü çalar ve koruma aralığı kullanmaz. Oda yankısının sembolleri
-              birbirine karıştırmasını alıcıdaki eşitleyici öğrenip temizler: paket başındaki eğitim dizisinden sonra
-              ileri besleme süzgeci, geçmiş kararlardan beslenen geri besleme süzgeci ve faz döngüsü birlikte (RLS ile)
-              uyarlanır; veri bloklarının arasındaki kısa bilinen sembollerle tazelenir. Bitler K = 7 evrişimli kodla
-              korunur. Su altı akustiğinde yüksek hızın klasik yolu; ~6 ms'den geç gelen yankı gürültü gibi kaldığından
-              yakın mesafe için.
-              <i>Stojanovic, Catipovic ve Proakis 1994; MIL-STD-188-110 (sonda sembolleri); Haykin (RLS).</i>
-            </li>
-            <li>
-              <b>Görsel ve dosya:</b> görsel önce seçilen boyuta küçültülüp WebP/JPEG olarak yeniden kodlanır (konum
-              gibi bilgiler gönderilmez). İçerik parçalara bölünür, parçalara ek olarak Reed-Solomon eşlik parçaları
-              üretilir: alıcı herhangi yeterli sayıda parçayı duyunca dosyayı kurar. Kaçan parçalar varsa gönderen
-              "tekrarla" ile çalmayı sürdürür, alıcı eksikleri sonraki turda tamamlar.
-            </li>
-            <li>
-              <b>Ekran → kamera (QR):</b> aynı içerik ses yerine ekranda art arda gösterilen QR kareleriyle de
-              gönderilebilir. İlk tur doğrudan veri parçalarıdır; ardından gelen kurtarma kareleri birkaç parçanın
-              XOR'unu taşır (LT çeşmesi kodu). Alıcı yayının ortasında başlayabilir, kaçırdığı kareleri sonrakilerden
-              tamamlar. Her kare ve içeriğin tamamı CRC-32 ile denetlenir; kamera görüntüsü bu cihazda, Worker'da
-              çözülür. Saniyede birkaç KB taşır, varsayılan ses yönteminin yüz katından fazla; ama iki cihazın birbirini görmesi gerekir.
+
+          <ol class="flow" aria-label="Bir aktarımın adımları">
+            <li><b>İçerik</b><span>Metin, dosya ya da küçültülmüş görsel (WebP/JPEG, konum bilgisi atılır)</span></li>
+            <li><b>Paket</b><span>Uzunluk ve tür başlığı, CRC-32, Reed-Solomon eşliği; isteğe bağlı AES-GCM</span></li>
+            <li><b>Kipleme</b><span><i class="tag-sound">ses</i> sekiz yöntemden biri · <i class="tag-screen">ekran</i> QR kareleri</span></li>
+            <li><b>Kanal</b><span>Yankı, gürültü, Doppler · parlama, bulanıklık, kaçan kareler</span></li>
+            <li><b>Senkron</b><span>Chirp ilişkilendirme · QR bulucu desenleri</span></li>
+            <li><b>Çözme</b><span>Yumuşak kararlar, Viterbi / LDPC, RS silintileri · çeşme kodu</span></li>
+            <li><b>Doğrulama</b><span>CRC tutmayan hiçbir şey gösterilmez</span></li>
+          </ol>
+
+          <section class="about-block" aria-labelledby="anatomy-title">
+            <h3 id="anatomy-title">Bir ses paketinin anatomisi</h3>
+            <p>
+              Aşağıdaki görüntü bir çizim değil: Mod 1 · MFSK'nin bu tarayıcıda üretilen gerçek sinyalinin
+              spektrogramı. Zaman soldan sağa, frekans aşağıdan yukarı akar; parlaklık enerjidir.
+            </p>
+            <figure class="anatomy">
+              <div class="spectro-figure" data-demo="anatomy">
+                <canvas aria-label="MFSK paketinin spektrogramı"></canvas>
+                <span class="playhead" aria-hidden="true"></span>
+                <div class="segments" aria-hidden="true"></div>
+                <button class="demo-play" type="button" aria-label="Paketin sesini dinle">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+                </button>
+              </div>
+              <figcaption class="segment-legend">
+                <span class="seg-chirp"><b>Chirp</b> frekans süpürmesi; alıcı paketin başladığı anı milisaniyenin altında bulur</span>
+                <span class="seg-header"><b>Başlık</b> uzunluk, tür ve profil numarası; alıcı yöntemi buradan tanır</span>
+                <span class="seg-data"><b>Veri + CRC-32</b> mesajın kendisi ve sağlaması</span>
+                <span class="seg-parity"><b>RS eşlik</b> Reed-Solomon fazlalığı: bozulan baytları geri kazanır</span>
+              </figcaption>
+            </figure>
+            <p>
+              <b>Senkron:</b> alıcı gelen sesi chirp şablonuyla sürekli ilişkilendirir; eşleşme tepesi paketin
+              başlangıcını verir. Aynı bantta benzer yöntemler bir chirp'i paylaşır, hangi profilin çaldığı başlıktaki
+              profil numarasından anlaşılır. 44,1/48 kHz farkı, saat kayması ve cihaz hareketi (Doppler) bu adımda
+              ve sembol izlemede hesaba katılır.
+            </p>
+          </section>
+
+          <section class="about-block" aria-labelledby="modes-title">
+            <h3 id="modes-title">Sekiz yöntem, sekiz farklı ses</h3>
+            <p>
+              Hepsi aynı senkron, başlık ve Reed-Solomon katmanını paylaşır; yalnız sembollerin sese nasıl yazıldığı
+              değişir. Her kart yöntemin gerçek sinyalini gösterir; <b>▶</b> ile kısa bir örneğini dinleyebilirsin.
+              Deneysel yöntemler Gönder kartındaki seçenekle açılır.
+            </p>
+            <div class="modes">
+              <article class="mode-card" data-mode="mfsk">
+                <header><h4>Mod 1 · MFSK</h4><span class="badge default">varsayılan</span></header>
+                <div class="spectro-figure"><canvas aria-label="MFSK sinyalinin spektrogramı"></canvas><span class="playhead" aria-hidden="true"></span><button class="demo-play" type="button" aria-label="MFSK örneğini dinle"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg></button></div>
+                <p class="gist">Her sembolde 1–4 ton, her ton 4 bit. Ardışık semboller dönüşümlü ton kümelerinde çalar.</p>
+                <p class="best"><b>En iyi:</b> genel kullanım, 1–3 m, yankılı oda.</p>
+                <p class="stats"></p>
+                <details>
+                  <summary>Ayrıntı ve kaynaklar</summary>
+                  <p>
+                    Her 4 bit 16 frekanstan biri olarak çalınır; aynı anda 1–4 ton. Ardışık semboller dönüşümlü ton
+                    kümeleri kullanır: oda yankısı önceki sembolü uzatsa da çözülen kümeye düşmez. Hata düzeltme sert
+                    kararlı Reed-Solomon ve silintilerle yapılır.
+                  </p>
+                  <p class="cite">MFSK16 (Greenman), ggwave (Gerganov) çizgisi.</p>
+                </details>
+              </article>
+
+              <article class="mode-card" data-mode="css">
+                <header><h4>Mod 2 · CSS</h4><span class="badge">deneysel</span></header>
+                <div class="spectro-figure"><canvas aria-label="CSS sinyalinin spektrogramı"></canvas><span class="playhead" aria-hidden="true"></span><button class="demo-play" type="button" aria-label="CSS örneğini dinle"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg></button></div>
+                <p class="gist">LoRa tipi chirp'ler: her sembol bandı tarar, bilgi başlangıç frekansının kaymasındadır.</p>
+                <p class="best"><b>En iyi:</b> en düşük SNR, en uzak mesafe.</p>
+                <p class="stats"></p>
+                <details>
+                  <summary>Ayrıntı ve kaynaklar</summary>
+                  <p>
+                    Her sembol bandı baştan sona tarayan bir chirp; bilgi başlangıç frekansının döngüsel kaymasında
+                    (SF bit). Alıcı dechirp + FFT ile tek bir tepe arar: gürültü ve dağınık yankı 2<sup>SF</sup> kutuya
+                    yayılırken sinyal tek kutuda toplanır. Bitler K = 7 evrişimli kodla korunur, çözücü yumuşak kararlı
+                    Viterbi kullanır; zaman ve Doppler, chirp'in sarma anındaki faz sıçramasından ayrılıp izlenir.
+                  </p>
+                  <p class="cite">Vangelista 2017 (LoRa); Lee vd. 2015 (havadan akustik chirp); Viterbi 1967.</p>
+                </details>
+              </article>
+
+              <article class="mode-card" data-mode="ofdm">
+                <header><h4>Mod 3 · OFDM</h4><span class="badge">deneysel</span></header>
+                <div class="spectro-figure"><canvas aria-label="DQPSK-OFDM sinyalinin spektrogramı"></canvas><span class="playhead" aria-hidden="true"></span><button class="demo-play" type="button" aria-label="OFDM örneğini dinle"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg></button></div>
+                <p class="gist">Onlarca alt taşıyıcı aynı anda çalar; her biri faz farkıyla 1–2 bit taşır.</p>
+                <p class="best"><b>En iyi:</b> yakın mesafede hız (MFSK'nin 5–15 katı).</p>
+                <p class="stats"></p>
+                <details>
+                  <summary>Ayrıntı ve kaynaklar</summary>
+                  <p>
+                    Bantta 100 Hz aralıklı onlarca alt taşıyıcı birden çalar, her biri bir önceki kullanımına göre faz
+                    farkıyla (DQPSK) bit taşır. Taşıyıcılar bloklara bölünür ve semboller bloklar arasında atlar; bir
+                    blok, eski yankısı sönünce yeniden kullanılır.
+                  </p>
+                  <p class="cite">DAB (ETSI EN 300 401) çizgisi.</p>
+                </details>
+              </article>
+
+              <article class="mode-card" data-mode="dsss">
+                <header><h4>Mod 4 · DSSS</h4><span class="badge">deneysel</span></header>
+                <div class="spectro-figure"><canvas aria-label="DSSS sinyalinin spektrogramı"></canvas><span class="playhead" aria-hidden="true"></span><button class="demo-play" type="button" aria-label="DSSS örneğini dinle"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg></button></div>
+                <p class="gist">Her bit gürültüye benzeyen bir çip dizisine yayılır; RAKE alıcı yankı yollarını toplar.</p>
+                <p class="best"><b>En iyi:</b> gürültülü ve uzak ortam, elde tutma, ultrasonik bant.</p>
+                <p class="stats"></p>
+                <details>
+                  <summary>Ayrıntı ve kaynaklar</summary>
+                  <p>
+                    Her kodlu bit 31/63 çiplik sözde rastgele bir kesimle ya da 802.11'deki 11 çipli Barker dizisiyle
+                    yayılır, diferansiyel BPSK ile çalınır. Alıcı biti dizinin kaydırılmış kopyalarıyla ilişkilendirip
+                    yankı yollarını ayrı ayrı görür; RAKE en güçlü yolları toplar. Bitler K = 7 evrişimli kodla korunur;
+                    saat farkı ve hareket, gecikme kilitli döngüyle izlenir.
+                  </p>
+                  <p class="cite">IEEE 802.11 (1997) DSSS; Price ve Green 1958 (RAKE); Proakis.</p>
+                </details>
+              </article>
+
+              <article class="mode-card" data-mode="janus">
+                <header><h4>Mod 5 · JANUS</h4><span class="badge">deneysel</span></header>
+                <div class="spectro-figure"><canvas aria-label="JANUS sinyalinin spektrogramı"></canvas><span class="playhead" aria-hidden="true"></span><button class="demo-play" type="button" aria-label="JANUS örneğini dinle"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg></button></div>
+                <p class="gist">NATO'nun su altı standardı: 13 ton çifti arasında atlayan ikili FSK.</p>
+                <p class="best"><b>En iyi:</b> çok yankılı salon, uzak mesafe; yavaş.</p>
+                <p class="stats"></p>
+                <details>
+                  <summary>Ayrıntı ve kaynaklar</summary>
+                  <p>
+                    Bant 13 ton çiftine bölünür; her kodlu bit, atlama dizisinin seçtiği çiftte iki tondan biri olarak
+                    çalınır ve bir çift ancak 13 çipte bir yeniden duyulur. Bitler K = 9 evrişimli kodla korunur; alıcı
+                    ton enerjilerinden, önceki kullanımın yankısını hesaba katan LLR'ler üretir ve çipin kendi yankı
+                    kuyruğunu da toplar (yumuşak kararlı Viterbi).
+                  </p>
+                  <p class="cite">NATO STANAG 4748 (JANUS); Potter vd. 2014; Proakis (kare-yasa birleştirme).</p>
+                </details>
+              </article>
+
+              <article class="mode-card" data-mode="qam">
+                <header><h4>Mod 6 · OFDM-QAM</h4><span class="badge">deneysel</span></header>
+                <div class="spectro-figure"><canvas aria-label="OFDM-QAM sinyalinin spektrogramı"></canvas><span class="playhead" aria-hidden="true"></span><button class="demo-play" type="button" aria-label="OFDM-QAM örneğini dinle"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg></button></div>
+                <p class="gist">Pilotlu, koherent OFDM: bilgi her taşıyıcının genlik ve fazında (QPSK, 16-QAM).</p>
+                <p class="best"><b>En iyi:</b> yan yana cihazlar; sesin en hızlısı.</p>
+                <p class="stats"></p>
+                <details>
+                  <summary>Ayrıntı ve kaynaklar</summary>
+                  <p>
+                    Mod 3'ün taşıyıcı ızgarasında, ama bilgi her taşıyıcının kendi genlik ve fazında. Paket başındaki
+                    eğitim sembolleri kanalı ölçer; her sembolde 4 pilot ve verilen kararlar, saat farkının ve hareketin
+                    yarattığı faz eğimini izler. Bitler K = 7 evrişimli kodla korunur, alıcı yumuşak kararlı Viterbi
+                    kullanır. Yankılı oda için taşıyıcıları 3 blokta atlatan bir profil de var.
+                  </p>
+                  <p class="cite">IEEE 802.11a çizgisi; Tosato ve Bisaglia 2002; van de Beek vd. 1995.</p>
+                </details>
+              </article>
+
+              <article class="mode-card" data-mode="ft8">
+                <header><h4>Mod 7 · FT8</h4><span class="badge">deneysel</span></header>
+                <div class="spectro-figure"><canvas aria-label="FT8 sinyalinin spektrogramı"></canvas><span class="playhead" aria-hidden="true"></span><button class="demo-play" type="button" aria-label="FT8 örneğini dinle"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg></button></div>
+                <p class="gist">Amatör telsizin zayıf sinyal kipi: 8 tonlu GFSK, Costas senkronu, LDPC kodu.</p>
+                <p class="best"><b>En iyi:</b> düşük SNR; çok yankılı salonda zorlanır.</p>
+                <p class="stats"></p>
+                <details>
+                  <summary>Ayrıntı ve kaynaklar</summary>
+                  <p>
+                    Sekiz tonlu, sürekli fazlı GFSK, sembol başına 3 bit. 79 sembollük çerçevedeki üç Costas dizisi
+                    zamanı ve Doppler'i verir; 58 veri sembolü bir LDPC(174, 91) kod sözcüğüdür, inanç yayılımıyla
+                    çözülür. Hız için 2–4 FT8 sinyali yan yana çalar. Alıcı, önceki sembolün yankısını ton başına öğrenip
+                    kafeste (BCJR) hesaba katar.
+                  </p>
+                  <p class="cite">Franke, Somerville ve Taylor 2020 (FT8); Goba, ft8_lib; Costas 1984; Gallager 1962; Bahl vd. 1974.</p>
+                </details>
+              </article>
+
+              <article class="mode-card" data-mode="dfe">
+                <header><h4>Mod 8 · SC-DFE</h4><span class="badge">deneysel</span></header>
+                <div class="spectro-figure"><canvas aria-label="SC-DFE sinyalinin spektrogramı"></canvas><span class="playhead" aria-hidden="true"></span><button class="demo-play" type="button" aria-label="SC-DFE örneğini dinle"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg></button></div>
+                <p class="gist">Tek taşıyıcı, saniyede ~4000 sembol; yankıyı alıcıdaki uyarlamalı eşitleyici temizler.</p>
+                <p class="best"><b>En iyi:</b> yakın mesafede yüksek hız.</p>
+                <p class="stats"></p>
+                <details>
+                  <summary>Ayrıntı ve kaynaklar</summary>
+                  <p>
+                    OFDM'nin tersine tek bir taşıyıcıda saniyede 3700–4000 BPSK/QPSK sembolü çalar ve koruma aralığı
+                    kullanmaz. Oda yankısının sembolleri birbirine karıştırmasını alıcıdaki eşitleyici öğrenip temizler:
+                    eğitim dizisinden sonra ileri besleme süzgeci, geçmiş kararlardan beslenen geri besleme süzgeci ve
+                    faz döngüsü birlikte (RLS ile) uyarlanır; veri bloklarının arasındaki kısa bilinen sembollerle
+                    tazelenir. Su altı akustiğinde yüksek hızın klasik yolu; ~6 ms'den geç gelen yankı gürültü gibi
+                    kaldığından yakın mesafe içindir.
+                  </p>
+                  <p class="cite">Stojanovic, Catipovic ve Proakis 1994; MIL-STD-188-110 (sonda sembolleri); Haykin (RLS).</p>
+                </details>
+              </article>
+            </div>
+          </section>
+
+          <section class="about-block" aria-labelledby="qr-title">
+            <h3 id="qr-title">Ekran kanalı: çeşme gibi akan QR kareleri</h3>
+            <div class="qr-demo">
+              <figure class="qr-live">
+                <canvas id="about-qr" aria-label="Küçük, gerçek bir Sonik QR yayını"></canvas>
+                <figcaption id="about-qr-label">&nbsp;</figcaption>
+              </figure>
+              <div>
+                <p>
+                  Ses yerine ekran kullanılınca içerik, art arda gösterilen standart QR karelerine bölünür. İlk tur
+                  doğrudan veri parçalarıdır (<span class="chip-data">1</span> <span class="chip-data">2</span> …).
+                  Ardından gelen <b>kurtarma kareleri</b> birkaç parçanın XOR'unu taşır
+                  (<span class="chip-repair">1⊕3</span>): bir <b>LT çeşmesi kodu</b>. Alıcı hangi kareleri kaçırırsa
+                  kaçırsın, yaklaşık parça sayısı kadar farklı kare görünce içeriği çıkarır; yayının başını beklemesi
+                  gerekmez.
+                </p>
+                <ol class="fountain" id="about-fountain" aria-label="Yayının ilk kareleri"></ol>
+                <p class="note">
+                  Bu küçük yayın gerçek: diğer cihazda <b>Ekran</b> kanalını seçip <b>Tara</b> ile okutabilirsin.
+                </p>
+              </div>
+            </div>
+            <div class="frame-bar" aria-label="Bir QR karesinin içeriği (bayt)">
+              <span><b>SONIK</b>sürüm · bayrak · 7</span>
+              <span><b>Yayın no</b>8</span>
+              <span><b>Uzunluk · boy · K</b>4 + 2 + 2</span>
+              <span><b>Sıra</b>4</span>
+              <span><b>İçerik CRC</b>4</span>
+              <span class="payload"><b>Parça</b>192–512</span>
+              <span><b>Kare CRC</b>4</span>
+            </div>
+            <p>
+              Her kare kendi CRC-32'siyle, birleşen içerik de ayrı bir CRC-32 ile denetlenir. Kamera görüntüsü 960
+              piksele ölçeklenip bir Web Worker'da jsQR ile çözülür; görüntü hiçbir yere gönderilmez. Saniyede
+              birkaç KB taşır, varsayılan ses yönteminin yüz katından fazla; ama iki cihazın birbirini görmesi gerekir.
               <i>Luby 2002 (LT kodları); ISO/IEC 18004 (QR); QR-Stream, Blockchain Commons UR çizgisi.</i>
-            </li>
-            <li>
-              <b>Hata düzeltme:</b> çözücü her sembolün ne kadar net olduğunu ölçer. MFSK ve OFDM'de şüpheli baytlar
-              Reed-Solomon'a "silinti" olarak verilir; böylece iki kat fazla hata düzeltilir. Diğer yöntemlerde bitler
-              önce bir iç kodla korunur (CSS, DSSS, OFDM-QAM ve SC-DFE'de K = 7, JANUS'ta K = 9 evrişimli kod, yumuşak kararlı
-              Viterbi; FT8'de LDPC ve inanç yayılımı), dışta yine Reed-Solomon vardır. CRC tutmayan veri asla
-              gösterilmez.
-            </li>
-            <li>
-              <b>Mikrofon:</b> tarayıcının yankı engelleme, gürültü bastırma ve otomatik kazanç özellikleri kapatılır;
-              açık kalırsa tonları gürültü sanıp siler.
-            </li>
-          </ul>
-          <table class="profiles">
-            <thead>
-              <tr><th>Yöntem</th><th>Profil</th><th>Net hız</th><th>Bant</th><th>Ne zaman</th></tr>
-            </thead>
-            <tbody id="profile-table"></tbody>
-          </table>
-          <p class="tips">
-            <b>İpuçları:</b> ses %50–90 arası iyi; hoparlörü sonuna kadar açmak bozulmaya yol açabilir. Önce aynı
-            odada 1 m ile dene; Turbo için cihazları yan yana koy. Yüksek ve ultrasonik bantlarda telefonun
-            hoparlörünü alıcının mikrofonuna çevir. Bluetooth kulaklık/hoparlör sesi sıkıştırıp tonları bozabilir.
-            iPhone'da sessiz mod anahtarı sesi kapatabilir. İşletim sisteminin mikrofon gürültü engellemesi kapalı
-            olmalı (macOS: Denetim Merkezi → Mikrofon Modu → Standart; "Ses Yalıtımı" tonları siler). Telefonda
-            dinlerken ekranı açık ve sayfayı önde tut; arka planda tarayıcı mikrofonu durdurabilir.
-          </p>
-          <p class="tips">
-            <b>QR ile:</b> gönderen ekranın parlaklığını artır, kamerayı 20–40 cm'den tut; QR'nin beyaz kenarı da
-            çerçevede kalsın. Okuma zorlaşırsa önce kare hızını, sonra yoğunluğu düşür ya da QR'yi tam ekran aç.
-            Kamera ve QR yayını sayfa arka plana geçince durur; alınan parçalar sayfa açık kaldıkça korunur.
-          </p>
-          <p class="tips">
-            <b>Gizlilik:</b> sunucu yok; ses, kamera görüntüsü ve mesaj hiçbir yere gönderilmez, her şey bu tarayıcıda işlenir. Ama
-            ses de QR kareleri de bir yayındır: yakındaki herkes duyup ya da görüp çözebilir. Gizli içerik için parola kullan.
+            </p>
+          </section>
+
+          <section class="about-block" aria-labelledby="fec-title">
+            <h3 id="fec-title">Bozulanı geri kazanmak</h3>
+            <div class="fec">
+              <div>
+                <h4>Reed-Solomon ve silintiler</h4>
+                <p>
+                  Çözücü her sembolün ne kadar net olduğunu ölçer. MFSK ve OFDM'de şüpheli baytlar Reed-Solomon'a
+                  "silinti" olarak verilir: yeri bilinen hata, yeri bilinmeyenin yarı maliyetine düzeltilir.
+                </p>
+              </div>
+              <div>
+                <h4>İç kod: Viterbi ve LDPC</h4>
+                <p>
+                  CSS, DSSS, OFDM-QAM ve SC-DFE'de K = 7, JANUS'ta K = 9 evrişimli kod ve yumuşak kararlı Viterbi;
+                  FT8'de LDPC ve inanç yayılımı. Dışta yine Reed-Solomon vardır.
+                </p>
+              </div>
+              <div>
+                <h4>Parçalar ve eşlik parçaları</h4>
+                <p>
+                  Görsel ve dosya parçalara bölünür, Reed-Solomon eşlik parçaları eklenir: alıcı herhangi yeterli
+                  sayıda parçayı duyunca dosyayı kurar. Görsel, parçalar geldikçe satır satır belirir.
+                </p>
+              </div>
+              <div>
+                <h4>CRC-32 ve parola</h4>
+                <p>
+                  CRC tutmayan veri asla gösterilmez. Parola girilirse içerik PBKDF2-SHA256 ile türetilen anahtarla
+                  AES-256-GCM'de şifrelenir; değiştirilmiş veri de reddedilir.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <details class="profiles-wrap">
+            <summary>Tüm ses profilleri ve net hızları</summary>
+            <table class="profiles">
+              <thead>
+                <tr><th>Yöntem</th><th>Profil</th><th>Net hız</th><th>Bant</th><th>Ne zaman</th></tr>
+              </thead>
+              <tbody id="profile-table"></tbody>
+            </table>
+          </details>
+
+          <div class="tip-grid">
+            <div class="tips">
+              <h4>Ses için ipuçları</h4>
+              <p>
+                Ses %50–90 arası iyi; sonuna kadar açmak bozulmaya yol açabilir. Önce aynı odada 1 m ile dene; Turbo
+                için cihazları yan yana koy. Yüksek ve ultrasonik bantta hoparlörü mikrofona çevir. Bluetooth
+                hoparlör sesi sıkıştırıp tonları bozabilir; iPhone'da sessiz mod anahtarı sesi kapatabilir.
+              </p>
+              <p>
+                Tarayıcının yankı engelleme, gürültü bastırma ve otomatik kazancı kapatılır; işletim sisteminin
+                mikrofon gürültü engellemesi de kapalı olmalı (macOS: Denetim Merkezi → Mikrofon Modu → Standart).
+                Telefonda dinlerken ekranı açık, sayfayı önde tut.
+              </p>
+            </div>
+            <div class="tips">
+              <h4>QR için ipuçları</h4>
+              <p>
+                Gönderen ekranın parlaklığını artır, kamerayı 20–40 cm'den tut; QR'nin beyaz kenarı da çerçevede
+                kalsın. Okuma zorlaşırsa önce kare hızını, sonra yoğunluğu düşür ya da QR'yi tam ekran aç.
+              </p>
+              <p>
+                Kamera ve QR yayını sayfa arka plana geçince durur; alınan parçalar sayfa açık kaldıkça korunur.
+                Büyük fotoğraflar için HD boyutu çoğu zaman yeter; Orijinal, dakikalar sürebilir.
+              </p>
+            </div>
+          </div>
+          <p class="privacy">
+            <b>Gizlilik:</b> sunucu yok; ses, kamera görüntüsü ve mesaj hiçbir yere gönderilmez, her şey bu tarayıcıda
+            işlenir. Ama ses de QR kareleri de bir yayındır: yakındaki herkes duyup ya da görüp çözebilir. Gizli içerik
+            için parola kullan.
           </p>
         </div>
       </details>

@@ -11,6 +11,7 @@ import { ObjectAssembler, TEXT_MIME, makeChunks, maxContentBytes, packBody, peek
 import { IMAGE_PRESETS, PartialImage, compressImage, loadImage, sniffImage } from './image.js';
 import { decodeWav, encodeWav } from './audio/wav.js';
 import { Spectrogram } from './ui/spectrogram.js';
+import { initAbout } from './ui/about.js';
 import { ENCRYPTION_OVERHEAD, decryptBytes, encryptBytes } from './crypto.js';
 import { initVisual } from './visual/ui.js';
 import { MAX_VISUAL_FILE } from './visual/protocol.js';
@@ -1506,6 +1507,12 @@ function init() {
       ui.channelPicker.querySelector(`[data-key="${next}"]`).focus();
     });
   }
+  initAbout({
+    details: $('about'),
+    encode: (payloads, profile) =>
+      request({ type: 'encode', payloads, profile, sampleRate: WAV_RATE, kind: KIND_TEXT, encrypted: false, amplitude: 0.8 }),
+    audio,
+  });
   ui.visualStart.addEventListener('click', sendScreen);
   ui.unlockLast.addEventListener('click', askPassword);
 
