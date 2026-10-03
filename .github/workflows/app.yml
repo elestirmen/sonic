@@ -1,0 +1,114 @@
+# Mobil uygulama derlemesi. Sunucuda Xcode olmadığı için iOS GitHub'ın macOS makinesinde derlenir.
+# - iOS: imzasız simülatör derlemesi, simülatörde açılış, açık/koyu ekran görüntüsü ve [sonik-diag] satırı.
+# - Android: debug APK (telefona doğrudan kurulabilir).
+# Çıktılar çalıştırmanın "Artifacts" bölümünde; tanı satırı özet sayfasında.
+name: Uygulama
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - public/**
+      - app/**
+      - ios/**
+      - android/**
+      - capacitor.config.json
+      - package.json
+      - package-lock.json
+      - tools/build-app.mjs
+      - .github/workflows/app.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  ios:
+    name: iOS (simülatör)
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run app:build && npx cap sync ios
+
+      - name: Derle
+        run: |
+          xcodebuild -version
+          xcodebuild -quiet -project ios/App/App.xcodeproj -scheme App -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/dd CODE_SIGNING_ALLOWED=NO build
+
+      - name: Simülatörde aç
+        run: |
+          UDID=$(xcrun simctl list devices available -j | jq -r '
+            [.devices | to_entries[] | select(.key | test("iOS")) | .value[] | select(.name | startswith("iPhone"))]
+            | ((map(select(.name | test("Pro$"))) | last) // last) | .udid')
+          xcrun simctl list devices | grep "$UDID"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b > /dev/null
+          xcrun simctl install "$UDID" build/dd/Build/Products/Debug-iphonesimulator/App.app
+          mkdir -p build/ci
+          for mode in light dark; do
+            xcrun simctl ui "$UDID" appearance "$mode"
+            # --console-pty: Capacitor'ın ilettiği console.* satırları (satır tamponlu) dosyaya düşer.
+            xcrun simctl launch --console-pty --terminate-running-process "$UDID" org.perinet.sonik \
+              > "build/ci/console-$mode.log" 2>&1 &
+            launcher=$!
+            sleep 20
+            xcrun simctl io "$UDID" screenshot "build/ci/ios-$mode.png"
+            xcrun simctl terminate "$UDID" org.perinet.sonik || true
+            kill "$launcher" 2> /dev/null || true
+          done
+          {
+            echo '### iOS simülatör'
+            echo '```'
+            grep -h -m1 'sonik-diag' build/ci/console-light.log || echo '(tanı satırı yok)'
+            grep -hE '\[(error|warn)\]' build/ci/console-*.log | head -20 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Tanı satırı yoksa sayfa ya da app.js yüklenmemiştir.
+          grep -q 'sonik-diag' build/ci/console-light.log
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: ios-simulator
+          path: build/ci/
+          if-no-files-found: ignore
+
+  android:
+    name: Android (debug APK)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npm run app:build && npx cap sync android
+      - name: Derle
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sonik-android-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk

@@ -460,7 +460,7 @@ Görsel gönderme süreleri (WebP; parça ve eşlik payı dahil):
 
 ## Geliştirme
 
-Gereken: Node.js ≥ 20. Paket kurulumu yok.
+Gereken: Node.js ≥ 20. Web sürümü için paket kurulumu yok; `npm ci` yalnız mobil uygulama (Capacitor) için gerekir.
 
 ```sh
 git clone https://github.com/elestirmen/sonic.git && cd sonic
@@ -507,8 +507,11 @@ public/                  yalnız bu klasör yayınlanır
   src/vendor/            yerel Nayuki ve jsQR; kaynak/lisans notları
   src/ui/                spectrogram (canlı şelale), about ("Nasıl çalışır?": gerçek sinyal spektrogramları, mini QR yayını)
 test/                    node --test; bench.js
-tools/                   encode, decode, deploy
+tools/                   encode, decode, deploy, build-app (uygulama paketi)
 docs/                    README görselleri, görsel aktarım araştırması
+app/                     yalnız uygulamaya eklenenler: app.css (güvenli alan), app.js (kayıt paneli), assets/ (ikon kaynakları)
+ios/, android/           Capacitor yerel projeleri; capacitor.config.json
+.github/workflows/       app.yml: iOS simülatör derlemesi ve Android APK
 docker-compose.yml, nginx.conf
 ```
 
@@ -525,6 +528,23 @@ docker compose up -d
 `tools/deploy.mjs`, canlı sürümün kurulumuna (Cloudflare DNS + Nginx Proxy Manager + Let's Encrypt)
 özgüdür; kimlik bilgilerini ortam değişkenlerinden ya da `--env` dosyasından okur, hiçbirini yazdırmaz.
 Başka bir kurulumda `DOMAIN`, `REFERENCE` ve betikteki `UPSTREAM` değiştirilmeli.
+
+## Mobil uygulama (hazırlanıyor)
+
+iOS ve Android uygulaması aynı `public/` kodunu [Capacitor](https://capacitorjs.com) kabuğunda
+çalıştırır; dosyalar uygulamanın içindedir, sunucuya bağlanmaz. `tools/build-app.mjs` kopyaya
+uygulamaya özgü CSP'yi, çentik için güvenli alanı (`app/app.css`) ve bir kayıt panelini (`app/app.js`;
+logoya 5 kez dokununca açılır) ekler; sitenin kendisi değişmez.
+
+```sh
+npm ci
+npm run app:sync         # public/ → build/app → ios/, android/
+```
+
+iOS, Xcode gerektirdiği için GitHub Actions'ın macOS makinesinde derlenir (`.github/workflows/app.yml`):
+her gönderimde simülatörde açılıp ekran görüntüsü alınır ve Android debug APK'sı üretilir; ikisi de
+çalıştırmanın "Artifacts" bölümünden indirilir. Kimlik `org.perinet.sonik`, yalnız iPhone.
+İkonlar `app/assets/` kaynaklarından `npx @capacitor/assets generate --assetPath app/assets` ile üretilir.
 
 ## Sınırlar
 

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Sonik</string>
+    <string name="title_activity_main">Sonik</string>
+    <string name="package_name">org.perinet.sonik</string>
+    <string name="custom_url_scheme">org.perinet.sonik</string>
+</resources>

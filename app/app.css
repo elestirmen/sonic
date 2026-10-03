@@ -1,0 +1,65 @@
+/* Yalnız uygulama paketinde (tools/build-app.mjs ekler). Sayfa viewport-fit=cover ile çentiğin ve
+   ana ekran çubuğunun altına uzanır; içerik güvenli alanın içinde kalsın. */
+
+html {
+  background: var(--bg);
+}
+
+body {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* Kaydırılan içerik saat ve pil satırının arkasından görünmesin. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0 0 auto;
+  height: env(safe-area-inset-top);
+  background: var(--bg);
+  z-index: 40;
+}
+
+.visual-stage.expanded {
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+}
+
+/* ---------------------------------------------------------------- kayıt paneli (app.js) */
+
+.app-log {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  background: var(--surface);
+  color: var(--text);
+}
+
+.app-log-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.app-log-bar strong {
+  flex: 1;
+}
+
+.app-log pre {
+  flex: 1;
+  margin: 0;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  font: 12px/1.4 ui-monospace, Menlo, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  -webkit-user-select: text;
+  user-select: text;
+}
