@@ -53,8 +53,11 @@ jobs:
 
       - name: Simülatörde aç
         run: |
+          # En yeni iOS çalışma ortamındaki iPhone (tercihen Pro).
           UDID=$(xcrun simctl list devices available -j | jq -r '
-            [.devices | to_entries[] | select(.key | test("iOS")) | .value[] | select(.name | startswith("iPhone"))]
+            [.devices | to_entries[] | select(.key | test("iOS-[0-9]"))]
+            | sort_by(.key | capture("iOS-(?<a>[0-9]+)-(?<b>[0-9]+)") | [(.a | tonumber), (.b | tonumber)])
+            | last.value | map(select(.name | startswith("iPhone")))
             | ((map(select(.name | test("Pro$"))) | last) // last) | .udid')
           xcrun simctl list devices | grep "$UDID"
           xcrun simctl boot "$UDID"
@@ -70,7 +73,9 @@ jobs:
             xcrun simctl launch --console-pty --terminate-running-process "$UDID" org.perinet.sonik \
               > "build/ci/console-$mode.log" 2>&1 &
             launcher=$!
-            sleep 30
+            # Soğuk açılışta web görünümü yarım dakikayı geçebiliyor: tanı satırını bekle.
+            for _ in $(seq 60); do grep -q 'sonik-diag' "build/ci/console-$mode.log" && break; sleep 2; done
+            sleep 3
             xcrun simctl spawn "$UDID" launchctl list | grep -i sonik || echo "uygulama çalışmıyor ($mode)"
             xcrun simctl io "$UDID" screenshot "build/ci/ios-$mode.png"
             xcrun simctl terminate "$UDID" org.perinet.sonik || true
@@ -83,12 +88,13 @@ jobs:
           {
             echo '### iOS simülatör'
             echo '```'
-            grep -h -m1 'sonik-diag' build/ci/console-light.log || echo '(tanı satırı yok)'
+            grep -h -m1 'sonik-diag' build/ci/console-*.log || echo '(tanı satırı yok)'
             grep -hE '\[(error|warn)\]' build/ci/console-*.log | head -20 || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           # Tanı satırı yoksa sayfa ya da app.js yüklenmemiştir.
           grep -q 'sonik-diag' build/ci/console-light.log
+          grep -q 'sonik-diag' build/ci/console-dark.log
 
       - uses: actions/upload-artifact@v7
         if: always()
