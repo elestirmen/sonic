@@ -59,19 +59,27 @@ jobs:
           xcrun simctl list devices | grep "$UDID"
           xcrun simctl boot "$UDID"
           xcrun simctl bootstatus "$UDID" -b > /dev/null
+          # İlk açılışta SpringBoard bir süre daha kendini hazırlıyor; erken başlatılan uygulama düşüyor.
+          sleep 45
           xcrun simctl install "$UDID" build/dd/Build/Products/Debug-iphonesimulator/App.app
           mkdir -p build/ci
           for mode in light dark; do
             xcrun simctl ui "$UDID" appearance "$mode"
+            sleep 10
             # --console-pty: Capacitor'ın ilettiği console.* satırları (satır tamponlu) dosyaya düşer.
             xcrun simctl launch --console-pty --terminate-running-process "$UDID" org.perinet.sonik \
               > "build/ci/console-$mode.log" 2>&1 &
             launcher=$!
-            sleep 20
+            sleep 30
+            xcrun simctl spawn "$UDID" launchctl list | grep -i sonik || echo "uygulama çalışmıyor ($mode)"
             xcrun simctl io "$UDID" screenshot "build/ci/ios-$mode.png"
             xcrun simctl terminate "$UDID" org.perinet.sonik || true
             kill "$launcher" 2> /dev/null || true
           done
+          xcrun simctl spawn "$UDID" log show --last 10m --style compact \
+            --predicate 'process == "App" OR (process == "SpringBoard" AND eventMessage CONTAINS[c] "sonik")' \
+            > build/ci/system.log 2>&1 || true
+          cp ~/Library/Logs/DiagnosticReports/App*.ips build/ci/ 2> /dev/null || true
           {
             echo '### iOS simülatör'
             echo '```'
