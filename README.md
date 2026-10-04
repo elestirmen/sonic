@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/icon.png" alt="sonic simgesi" width="120"></p>
+
 # Sonik: ses ve ekranla veri aktarımı
 
 Tarayıcıda çalışan bir **akustik modem** ve **ekran/kamera aktarımı**. Bir cihaz metni, görseli
